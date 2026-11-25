@@ -20,6 +20,7 @@ import { caseMessages, checkAnswer, type EvalCase } from "./check";
 const PASS_RATE_GATE = 0.9;
 const ATTEMPTS = 4;
 const ANSWER_TIMEOUT_MS = 60_000;
+const MAX_ERRORS_IN_A_ROW = 3;
 
 const { values: args } = parseArgs({
   options: {
@@ -63,13 +64,21 @@ async function ask(model: Model, env: Env, system: string, evalCase: EvalCase): 
 
 async function evaluate(model: Model, env: Env, systems: Map<string, string>): Promise<Result[]> {
   const results: Result[] = [];
+  let errorsInARow = 0;
   for (const evalCase of cases) {
+    // A model whose daily quota ran out would otherwise retry every remaining case for minutes.
+    if (errorsInARow >= MAX_ERRORS_IN_A_ROW) {
+      results.push({ id: evalCase.id, failures: [], error: "skipped, quota likely used up" });
+      continue;
+    }
     const system = systems.get(evalCase.locale ?? "en") ?? "";
     try {
       const answer = await ask(model, env, system, evalCase);
       results.push({ id: evalCase.id, answer, failures: checkAnswer(answer, evalCase) });
+      errorsInARow = 0;
     } catch (cause) {
       results.push({ id: evalCase.id, failures: [], error: String(cause).slice(0, 160) });
+      errorsInARow++;
     }
     process.stdout.write(".");
   }

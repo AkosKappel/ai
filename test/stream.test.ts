@@ -26,7 +26,22 @@ describe("sseToText", () => {
 
   it("handles events split across chunks and CRLF line endings", async () => {
     const event = delta("Ahoj").replaceAll("\n", "\r\n");
-    const body = streamOf(event.slice(0, 10), event.slice(10, 25), event.slice(25));
+    const body = streamOf(
+      event.slice(0, 10),
+      event.slice(10, 25),
+      event.slice(25),
+      "data: [DONE]\r\n",
+    );
     expect(await new Response(sseToText(body)).text()).toBe("Ahoj");
+  });
+
+  it("accepts a finish_reason as the end of the answer", async () => {
+    const finish = `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`;
+    expect(await new Response(sseToText(streamOf(delta("Done"), finish))).text()).toBe("Done");
+  });
+
+  it("errors when the stream stops without finishing, as Gemini's sometimes does", async () => {
+    const cutOff = new Response(sseToText(streamOf(delta("Ákos built a REST"))));
+    await expect(cutOff.text()).rejects.toThrow("Stream ended before the answer was complete");
   });
 });

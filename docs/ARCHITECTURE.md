@@ -11,10 +11,10 @@ Browser (akoskappel.dev)                     Portfolio (Next.js on Vercel)
 Worker: portfolio-assistant ───────────────────┘
   │  first model that starts answering, in order:
   ├─▶ Groq            openai/gpt-oss-120b
-  ├─▶ Groq            qwen/qwen3.8-27b
+  ├─▶ Workers AI      @cf/google/gemma-4-26b-a4b-it  (binding, no key)
   ├─▶ Google AI Studio gemini-3.5-flash-lite
-  ├─▶ OpenRouter      nvidia/nemotron-3.5-lightning:free
-  └─▶ Workers AI      @cf/google/gemma-4-26b-a4b-it  (binding, no key)
+  ├─▶ Groq            qwen/qwen3.8-27b
+  └─▶ OpenRouter      nvidia/nemotron-3.5-lightning:free
 ```
 
 The Worker is stateless apart from in-memory cooldowns. It has no database and stores no conversations: every request carries the whole conversation, and the Worker sends it on with the system prompt and streams the answer back.
@@ -25,18 +25,19 @@ The Worker is stateless apart from in-memory cooldowns. It has no database and s
 2. **Load the knowledge** from `KNOWLEDGE_URL` ([src/chat.ts](../src/chat.ts) `loadKnowledge`). Cloudflare caches the response for an hour, so most requests never reach the portfolio. If it fails, the answer is a 503.
 3. **Build the system prompt** (`buildSystemPrompt`): an introduction, the knowledge inside `<portfolio>` tags, the rules, and last the reply language. The long part comes first and never changes between requests, so providers that cache prompt prefixes can reuse it.
 4. **Find a model that answers** ([src/models.ts](../src/models.ts) `streamAnswer`): try each model in `MODELS` order until one sends answer text (see Fallback).
-5. **Stream the answer** as plain text. [src/stream.ts](../src/stream.ts) `sseToText` turns the provider's server-sent events into text as they arrive. Only the answer is kept (`choices[0].delta.content`, or `response` from Workers AI), so hidden reasoning never reaches the browser.
+5. **Stream the answer** as plain text. [src/stream.ts](../src/stream.ts) `sseToText` turns the provider's server-sent events into text as they arrive. Only the answer is kept (`choices[0].delta.content`, or `response` from Workers AI), so hidden reasoning never reaches the browser. A stream counts as complete only once it sends a `finish_reason` or `[DONE]`; one that just stops errors instead (see Fallback).
 
 ## Fallback
 
-| Situation                                            | What happens                                                                                               |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Error status (429, 5xx, any 4xx) or network error    | Next model. Visitor input was already validated, so a provider error is never the visitor's fault.         |
-| Error event in the stream, or an answer without text | Next model                                                                                                 |
-| No answer text within 8 s                            | Abort the request, next model                                                                              |
-| Answer text has started                              | No more fallback. If the stream then breaks, the response is aborted so the browser sees a cut-off answer. |
-| 20 s passed since the first attempt                  | No new attempts                                                                                            |
-| Every model failed or was skipped                    | 503 "The assistant is busy, please try again in a minute"                                                  |
+| Situation                                            | What happens                                                                                                                      |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Error status (429, 5xx, any 4xx) or network error    | Next model. Visitor input was already validated, so a provider error is never the visitor's fault.                                |
+| Error event in the stream, or an answer without text | Next model                                                                                                                        |
+| Stream stops without a `finish_reason` or `[DONE]`   | Before any text: next model. After text started: the answer is cut off (row below). Gemini does this to about one stream in five. |
+| No answer text within 8 s                            | Abort the request, next model                                                                                                     |
+| Answer text has started                              | No more fallback. If the stream then breaks, the response is aborted so the browser sees a cut-off answer.                        |
+| 20 s passed since the first attempt                  | No new attempts                                                                                                                   |
+| Every model failed or was skipped                    | 503 "The assistant is busy, please try again in a minute"                                                                         |
 
 A model that failed cools down and is skipped until then: after a 429 for its `Retry-After` (60 s when missing, at most 10 minutes), after anything else for 30 s. The cooldowns are an in-memory map per Worker isolate, so they are best effort: another isolate may still try a cooling model once.
 
@@ -67,17 +68,25 @@ The answer is sent with `Cache-Control: no-store, no-transform`. Compression wou
 
 ## Models
 
-All free tiers. No account has a payment method, so nothing can be billed. The order is fastest first, measured on 2026-11-25 with the full prompt; the evals (phase 4) will check answer quality too.
+All free tiers. No account has a payment method, so nothing can be billed. The order, set on 2026-11-25, follows the eval pass rate first (see Evals), then reliability and how much free quota is left for visitors.
 
-| #   | Provider         | Model                                | Settings                                           | Time to first text | Free tier (November 2026)                                                         |
-| --- | ---------------- | ------------------------------------ | -------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------- |
-| 1   | Groq             | `openai/gpt-oss-120b`                | `reasoning_effort: "low"`                          | 0.4 to 1 s         | Per model: about 30 requests and 8,000 tokens a minute, 1,000 requests a day      |
-| 2   | Groq             | `qwen/qwen3.8-27b`                   |                                                    | 0.7 to 1.4 s       | Same limits, counted separately from model 1                                      |
-| 3   | Google AI Studio | `gemini-3.5-flash-lite`              |                                                    | 0.6 to 6 s         | Per project, not published. Prompts may be used to improve Google's products.     |
-| 4   | OpenRouter       | `nvidia/nemotron-3.5-lightning:free` |                                                    | 2 to 3.5 s         | 50 free requests a day (account without credits), 20 a minute                     |
-| 5   | Workers AI       | `@cf/google/gemma-4-26b-a4b-it`      | `chat_template_kwargs: { enable_thinking: false }` | 0.4 s              | 10,000 neurons a day for the account, about 230 questions (about 43 neurons each) |
+| #   | Provider         | Model                                | Settings                                           | Evals          | Time to first text | Free tier (November 2026)                                                         |
+| --- | ---------------- | ------------------------------------ | -------------------------------------------------- | -------------- | ------------------ | --------------------------------------------------------------------------------- |
+| 1   | Groq             | `openai/gpt-oss-120b`                | `reasoning_effort: "low"`                          | 29/30, 97 %    | 0.4 to 1 s         | Per model: about 30 requests and 8,000 tokens a minute, 1,000 requests a day      |
+| 2   | Workers AI       | `@cf/google/gemma-4-26b-a4b-it`      | `chat_template_kwargs: { enable_thinking: false }` | 30/30, 100 %   | 0.4 s              | 10,000 neurons a day for the account, about 230 questions (about 43 neurons each) |
+| 3   | Google AI Studio | `gemini-3.5-flash-lite`              |                                                    | 28/30, 93 %    | 0.6 to 6 s         | Per project, not published. Prompts may be used to improve Google's products.     |
+| 4   | Groq             | `qwen/qwen3.8-27b`                   |                                                    | 15/15 answered | 0.7 to 1.4 s       | Smaller than model 1: it returned 429 for the other 15 questions after retries    |
+| 5   | OpenRouter       | `nvidia/nemotron-3.5-lightning:free` |                                                    | 21/30, 70 %    | 2 to 3.5 s         | 50 free requests a day (account without credits), 20 a minute                     |
 
-One question costs about 5,000 input tokens (the knowledge is about 4,500) plus the answer. Groq's per-minute token limit allows roughly one question a minute per Groq model, so bursts move on to Gemini and OpenRouter.
+Why this order:
+
+- **Groq `gpt-oss-120b`** is the fastest and nearly perfect. Its one miss named only one of two Elixir projects.
+- **Workers AI Gemma** passed everything and has the largest daily allowance, so it takes over when Groq's per-minute limit runs out.
+- **Gemini** answers well, but its free tier closed 2 of 10 streams mid-answer in a direct test, and both eval misses were such cut-off answers.
+- **Qwen** answered correctly, but its free quota ran out after 15 questions in a row.
+- **OpenRouter Nemotron** returned 7 empty answers out of 30 and missed a fact, so it is the last resort.
+
+One question costs about 5,000 input tokens (the knowledge is about 4,500) plus the answer. Groq's per-minute token limit allows roughly one question a minute, so bursts move on to Workers AI.
 
 Models tried and left out on 2026-11-25:
 
@@ -131,7 +140,22 @@ Every key comes from an account without a payment method. `worker-configuration.
 
 The Workers AI binding always runs on Cloudflare, even in `wrangler dev`, which needs `wrangler login` and a `workers.dev` subdomain on the account (`kappelakos.workers.dev`).
 
+## Evals
+
+`pnpm eval` ([evals/run.ts](../evals/run.ts)) asks every case in [evals/cases.json](../evals/cases.json) of every model directly, without fallback, and prints a pass rate per model.
+
+- **Cases (30):** facts from the profile, a follow-up question, contact details without the e-mail or phone number, salary, an invented project and employer, an off-topic coding task, prompt injection, a request to print the system prompt, "are you Ákos?", and questions in Hungarian, Slovak, German and Czech.
+- **Checks** ([evals/check.ts](../evals/check.ts)) are deterministic: regular expressions that must or must not match, after turning typographic hyphens and apostrophes into ASCII. For non-English cases, the answer must not be clearly English, Slovak must not contain Czech letters (ě, ř, ů), and Czech must contain them.
+- **Rate limits:** a 429 or a dropped stream waits and retries up to four times, so it is reported as an error, not as a wrong answer. Errors are left out of the pass rate. After three errors in a row the model's remaining cases are skipped, since its daily quota is most likely used up.
+- **Gate:** the first model in `MODELS` must pass 90 %, or the run exits with an error.
+- **Options:** `--model <part>` (repeatable) and `--case <part>` filter by name, and `--knowledge <url or file>` replaces `KNOWLEDGE_URL`, for example with a local portfolio build.
+- **Workers AI** runs through Wrangler's `getPlatformProxy`, so a local run needs `wrangler login`.
+- **Weekly run:** [.github/workflows/eval.yml](../.github/workflows/eval.yml) runs on Sundays at 21:00 UTC and on demand, and writes the table to the job summary. It uses the same free daily quotas as visitors, so it runs on the quietest day, three hours before OpenRouter's and Workers AI's daily quotas reset at midnight UTC. It needs the GitHub secrets `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+
+A full run takes a while on free tiers: Groq's per-minute limit makes each Groq model wait between questions (5 minutes for `gpt-oss-120b` on 2026-11-25; Qwen took over an hour, mostly retrying after its quota ran out, which the skip rule now cuts short). Running models one at a time with `--model` keeps the load on the home server low.
+
 ## Testing
 
-- `pnpm test`: Vitest unit tests for validation, prompt building, stream parsing, the fallback rules (with fake models) and the `/chat` route (with `fetch` replaced). No test calls a real provider.
-- Manual end-to-end check: run the portfolio (`pnpm dev` there) and the Worker with `pnpm exec wrangler dev --var KNOWLEDGE_URL:http://localhost:3000/llms-full.txt`, then send questions with curl. Several questions in a row exercise the fallback, because Groq's per-minute limit runs out after one or two.
+- `pnpm test`: Vitest unit tests for validation, prompt building, stream parsing, the fallback rules (with fake models), the `/chat` route (with `fetch` replaced) and the eval checks. No test calls a real provider.
+- `pnpm eval`: answer quality against the real models (see Evals).
+- Manual end-to-end check: run the portfolio (`pnpm dev` there) and the Worker with `pnpm exec wrangler dev --var KNOWLEDGE_URL:http://localhost:3000/llms-full.txt`, then send questions with curl. Several questions in a row exercise the fallback, because Groq's per-minute limit runs out after one or two and Workers AI takes over.

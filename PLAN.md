@@ -92,7 +92,7 @@ The quality gate for prompt and model changes, and the reason the model order is
 
 - `evals/cases.json`: about 30 questions with checks: facts that must appear (employer names, dates, technologies), facts that must not appear (invented projects), refusals (salary, private contact details, off-topic tasks, prompt injection), and a few non-English questions.
 - `pnpm eval` runs every case against each enabled model and prints a pass rate per model. Checks are deterministic (string and regex matches). An LLM judge comes later if string checks prove too blunt.
-- Runs on demand and weekly in GitHub Actions, not on every push, to stay inside the free quotas.
+- Runs on demand and weekly in GitHub Actions (Sundays at 21:00 UTC, before the daily quotas reset), not on every push, to stay inside the free quotas.
 
 ## 9. Repository layout
 
@@ -106,8 +106,9 @@ ai/
 ├── test/                 # Vitest unit tests (fallback, validation, stream parsing)
 ├── evals/
 │   ├── cases.json
+│   ├── check.ts
 │   └── run.ts
-├── .github/workflows/ci.yml
+├── .github/workflows/        # ci.yml, eval.yml
 ├── wrangler.jsonc
 ├── .dev.vars.example
 ├── PLAN.md
@@ -121,7 +122,7 @@ The chat UI, the Turnstile widget and `/llms-full.txt` live in the portfolio rep
 1. **Foundation** (done 2026-11-25): repository, Worker with `GET /health`, Biome, Vitest, CI checks.
 2. **Chat endpoint** (done 2026-11-25): knowledge fetch, prompt, one provider (Groq, `openai/gpt-oss-120b`), plain-text streaming.
 3. **Fallback** (done 2026-11-25): the other providers, timeouts, cooldowns, 503 handling, unit tests with fake models.
-4. **Evals:** cases and runner, pick the model order from the results.
+4. **Evals** (done 2026-11-25): 30 cases and a runner with a pass rate per model; the model order follows from the results (`docs/ARCHITECTURE.md`, Evals and Models).
 5. **Protection:** Turnstile, rate-limit binding, request limits, origin check, AI Gateway.
 6. **Portfolio:** `/llms.txt` and `/llms-full.txt` with the size test (done 2026-11-25), chat UI (streaming, loading, error, busy and cut-off states, provider notice), privacy text.
 7. **Deploy:** custom domain `ai.akoskappel.dev`, deploy workflow with a Cloudflare API token, entry in `infra/apps/README.md`.

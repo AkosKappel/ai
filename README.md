@@ -2,7 +2,7 @@
 
 A Cloudflare Worker behind the "ask about me" chat on [akoskappel.dev](https://akoskappel.dev). It answers questions from the portfolio's public content using free model tiers, with streaming and fallback across providers.
 
-Status: `POST /chat` streams answers from five free models, falling back from one to the next when a provider is busy. Evals and abuse protection are next. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
+Status: `POST /chat` streams answers from five free models, falling back from one to the next when a provider is busy. An eval suite checks answer quality per model. Abuse protection is next. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
 
 ## Development
 
@@ -14,6 +14,7 @@ pnpm dev          # wrangler dev on http://localhost:8787
 pnpm test
 pnpm lint
 pnpm typecheck
+pnpm eval          # answer quality per model, against the real providers (slow)
 ```
 
 `worker-configuration.d.ts` is generated from `wrangler.jsonc` and the secret names in `.dev.vars.example` by `pnpm types`. Run it after changing bindings, secrets or the compatibility date, and commit the result.

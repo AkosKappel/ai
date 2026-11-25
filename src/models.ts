@@ -81,11 +81,12 @@ function workersAi(model: string, extra: Record<string, unknown> = {}): Model {
 }
 
 /**
- * Tried in this order: fastest first, measured on 2026-11-25 with the full prompt. Only free tiers:
- * no account has a payment method, and OpenRouter IDs must end in `:free`. Groq limits each model
- * separately, so its second model adds real capacity.
+ * Tried in this order, set on 2026-11-25 from the eval pass rates, speed and free quota (details
+ * in docs/ARCHITECTURE.md). Only free tiers: no account has a payment method, and OpenRouter IDs
+ * must end in `:free`.
  */
 export const MODELS: Model[] = [
+  // 97 % in the evals, fastest.
   openAiCompatible(
     "groq",
     "https://api.groq.com/openai/v1/chat/completions",
@@ -93,26 +94,29 @@ export const MODELS: Model[] = [
     (env) => env.GROQ_API_KEY,
     { reasoning_effort: "low" },
   ),
-  openAiCompatible(
-    "groq",
-    "https://api.groq.com/openai/v1/chat/completions",
-    "qwen/qwen3.8-27b",
-    (env) => env.GROQ_API_KEY,
-  ),
+  // 100 %, about 230 questions a day. Gemma reasons by default, which took 14 s to first text.
+  workersAi("@cf/google/gemma-4-26b-a4b-it", { chat_template_kwargs: { enable_thinking: false } }),
+  // 93 %, but drops about one stream in five before the answer is complete.
   openAiCompatible(
     "gemini",
     "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     "gemini-3.5-flash-lite",
     (env) => env.GEMINI_API_KEY,
   ),
+  // Correct answers, but its free quota ran out after 15 questions.
+  openAiCompatible(
+    "groq",
+    "https://api.groq.com/openai/v1/chat/completions",
+    "qwen/qwen3.8-27b",
+    (env) => env.GROQ_API_KEY,
+  ),
+  // 70 %, with several empty answers; only 50 free requests a day.
   openAiCompatible(
     "openrouter",
     "https://openrouter.ai/api/v1/chat/completions",
     "nvidia/nemotron-3.5-lightning:free",
     (env) => env.OPENROUTER_API_KEY,
   ),
-  // Gemma reasons by default, which took 14 s before the first answer text.
-  workersAi("@cf/google/gemma-4-26b-a4b-it", { chat_template_kwargs: { enable_thinking: false } }),
 ];
 
 // Models that failed recently, by `provider/model`, with the time they may be tried again.
