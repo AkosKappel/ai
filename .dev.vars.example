@@ -1,2 +1,5 @@
 # Copy to .dev.vars and fill in. In production, set each one with `wrangler secret put <NAME>`.
+# Use accounts without a payment method, so nothing can ever be billed.
 GROQ_API_KEY=
+GEMINI_API_KEY=
+OPENROUTER_API_KEY=
