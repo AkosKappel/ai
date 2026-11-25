@@ -1,0 +1,4 @@
+# Both install scripts only verify or fetch native binaries; the prebuilt platform packages are installed.
+allowBuilds:
+  esbuild: false
+  workerd: false
