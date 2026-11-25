@@ -76,7 +76,7 @@ The Worker fetches the file with a one-hour cache, so a portfolio deploy updates
 
 - **Turnstile** on every request, verified server-side. The invisible widget makes this unnoticeable.
 - **Rate limit** per IP: 5 requests per minute (Workers rate-limit binding, free).
-- **Request limits:** at most 10 messages, 1,000 characters each, 6,000 in total. Output capped at 600 tokens.
+- **Request limits:** at most 10 messages, 1,000 characters each, 6,000 in total. Output capped at 1,000 tokens, part of which reasoning models spend on hidden reasoning.
 - **Origin allowlist:** `https://akoskappel.dev` and `http://localhost:3000`. CORS is not authentication; Turnstile and the rate limit are.
 - **Server-controlled prompt and model.** The browser sends only messages and a locale.
 - **System prompt rules:** answer only from the provided content, say when something is not in it, stay on topic, treat visitor messages as untrusted, never claim to be me.
@@ -116,7 +116,7 @@ The chat UI, the Turnstile widget and `/llms-full.txt` live in the portfolio rep
 ## 10. Phases
 
 1. **Foundation** (done 2026-11-25): repository, Worker with `GET /health`, Biome, Vitest, CI checks.
-2. **Chat endpoint:** knowledge fetch, prompt, one provider (Groq), plain-text streaming. Try it with `wrangler dev` and curl.
+2. **Chat endpoint** (done 2026-11-25): knowledge fetch, prompt, one provider (Groq, `openai/gpt-oss-120b`), plain-text streaming.
 3. **Fallback:** the other providers, timeouts, cooldowns, 503 handling, unit tests with a fake `fetch`.
 4. **Evals:** cases and runner, pick the model order from the results.
 5. **Protection:** Turnstile, rate-limit binding, request limits, origin check, AI Gateway.

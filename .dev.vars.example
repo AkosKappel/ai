@@ -1,0 +1,2 @@
+# Copy to .dev.vars and fill in. In production, set each one with `wrangler secret put <NAME>`.
+GROQ_API_KEY=
