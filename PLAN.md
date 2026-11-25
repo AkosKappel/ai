@@ -124,7 +124,7 @@ The chat UI, the Turnstile widget and `/llms-full.txt` live in the portfolio rep
 3. **Fallback** (done 2026-11-25): the other providers, timeouts, cooldowns, 503 handling, unit tests with fake models.
 4. **Evals** (done 2026-11-25): 30 cases and a runner with a pass rate per model; the model order follows from the results (`docs/ARCHITECTURE.md`, Evals and Models).
 5. **Protection** (done 2026-11-25): origin allowlist and CORS, body size limit, rate-limit binding, Turnstile verification. AI Gateway dropped (see Decisions).
-6. **Portfolio:** `/llms.txt` and `/llms-full.txt` with the size test (done 2026-11-25), chat UI (streaming, loading, error, busy and cut-off states, provider notice), privacy text.
+6. **Portfolio** (done 2026-11-25): `/llms.txt` and `/llms-full.txt` with the size test, a floating "Ask about me" chat (streaming, loading, error, busy and cut-off states, provider notice, Turnstile), privacy text on `/colophon`. Hidden until the Worker URL and Turnstile site key are set.
 7. **Deploy:** custom domain `ai.akoskappel.dev`, deploy workflow with a Cloudflare API token, entry in `infra/apps/README.md`.
 
 ## 11. Done when

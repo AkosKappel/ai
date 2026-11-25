@@ -46,6 +46,17 @@ The Worker is stateless apart from in-memory cooldowns. It has no database and s
 
 A model that failed cools down and is skipped until then: after a 429 for its `Retry-After` (60 s when missing, at most 10 minutes), after anything else for 30 s. The cooldowns are an in-memory map per Worker isolate, so they are best effort: another isolate may still try a cooling model once.
 
+## The chat in the portfolio
+
+The portfolio shows a floating "Ask about me" button on every page ([portfolio `src/components/assistant/`](https://github.com/AkosKappel/portfolio/tree/main/src/components/assistant)).
+
+- The panel, the Turnstile script and the chat logic load only when a visitor first opens the chat (`next/dynamic`), so pages pay for the button alone.
+- Every message gets a fresh Turnstile token. The widget runs invisibly and shows a checkbox only when Cloudflare is unsure about the visitor.
+- Before sending, the conversation is trimmed to the Worker's limits (the last 10 messages and 6,000 characters, starting with a visitor message).
+- The answer streams into the panel and is rendered from a small, safe Markdown subset: paragraphs, lists, bold text and HTTPS links, never raw HTML.
+- Error states map the Worker's status codes: 429 "too many questions", 503 "busy", 403 "bot check failed", a broken stream "the answer was cut off", anything else "something went wrong". Every state except the rate limit and the bot check offers "Try again".
+- The chat is hidden until `NEXT_PUBLIC_ASSISTANT_URL` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set in the portfolio. Only then does its Content Security Policy allow the Worker and Turnstile, and `/colophon` explain where questions go.
+
 ## API
 
 | Route           | Response                                               |
