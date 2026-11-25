@@ -111,7 +111,8 @@ export const MODELS: Model[] = [
     "nvidia/nemotron-3.5-lightning:free",
     (env) => env.OPENROUTER_API_KEY,
   ),
-  workersAi("@cf/google/gemma-4-26b-a4b-it"),
+  // Gemma reasons by default, which took 14 s before the first answer text.
+  workersAi("@cf/google/gemma-4-26b-a4b-it", { chat_template_kwargs: { enable_thinking: false } }),
 ];
 
 // Models that failed recently, by `provider/model`, with the time they may be tried again.

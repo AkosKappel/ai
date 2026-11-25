@@ -69,13 +69,13 @@ The answer is sent with `Cache-Control: no-store, no-transform`. Compression wou
 
 All free tiers. No account has a payment method, so nothing can be billed. The order is fastest first, measured on 2026-11-25 with the full prompt; the evals (phase 4) will check answer quality too.
 
-| #   | Provider         | Model                                | Settings                  | Time to first text | Free tier (November 2026)                                                     |
-| --- | ---------------- | ------------------------------------ | ------------------------- | ------------------ | ----------------------------------------------------------------------------- |
-| 1   | Groq             | `openai/gpt-oss-120b`                | `reasoning_effort: "low"` | 0.4 to 1 s         | Per model: about 30 requests and 8,000 tokens a minute, 1,000 requests a day  |
-| 2   | Groq             | `qwen/qwen3.8-27b`                   |                           | 0.7 to 1.4 s       | Same limits, counted separately from model 1                                  |
-| 3   | Google AI Studio | `gemini-3.5-flash-lite`              |                           | 0.6 to 6 s         | Per project, not published. Prompts may be used to improve Google's products. |
-| 4   | OpenRouter       | `nvidia/nemotron-3.5-lightning:free` |                           | 2 to 3.5 s         | 50 free requests a day (account without credits), 20 a minute                 |
-| 5   | Workers AI       | `@cf/google/gemma-4-26b-a4b-it`      |                           | not measured yet   | 10,000 neurons a day for the account, about 177 questions                     |
+| #   | Provider         | Model                                | Settings                                           | Time to first text | Free tier (November 2026)                                                         |
+| --- | ---------------- | ------------------------------------ | -------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------- |
+| 1   | Groq             | `openai/gpt-oss-120b`                | `reasoning_effort: "low"`                          | 0.4 to 1 s         | Per model: about 30 requests and 8,000 tokens a minute, 1,000 requests a day      |
+| 2   | Groq             | `qwen/qwen3.8-27b`                   |                                                    | 0.7 to 1.4 s       | Same limits, counted separately from model 1                                      |
+| 3   | Google AI Studio | `gemini-3.5-flash-lite`              |                                                    | 0.6 to 6 s         | Per project, not published. Prompts may be used to improve Google's products.     |
+| 4   | OpenRouter       | `nvidia/nemotron-3.5-lightning:free` |                                                    | 2 to 3.5 s         | 50 free requests a day (account without credits), 20 a minute                     |
+| 5   | Workers AI       | `@cf/google/gemma-4-26b-a4b-it`      | `chat_template_kwargs: { enable_thinking: false }` | 0.4 s              | 10,000 neurons a day for the account, about 230 questions (about 43 neurons each) |
 
 One question costs about 5,000 input tokens (the knowledge is about 4,500) plus the answer. Groq's per-minute token limit allows roughly one question a minute per Groq model, so bursts move on to Gemini and OpenRouter.
 
@@ -84,6 +84,7 @@ Models tried and left out on 2026-11-25:
 - `gemini-3.5-flash` and `gemini-3.1-flash-lite`: 8 to 40 s to first text on the free tier.
 - `gemini-flash-latest`, `gemma-4-31b-it` (Gemini), `google/gemma-4-31b-it:free` and `inclusionai/ling-3.2-flash:free` (OpenRouter): 503 or 429 from overload.
 - `nvidia/nemotron-3.5-super-vl:free`: over 8 s with default reasoning, 3.5 s with low effort, slower than Lightning.
+- Workers AI Gemma with its default reasoning: 14 s to first text, so reasoning is turned off.
 
 Every HTTP provider is called through its OpenAI-compatible chat completions endpoint (`openAiCompatible`), and Workers AI through the `AI` binding (`workersAi`). Both return the provider's SSE stream, so `streamAnswer` treats them the same.
 
@@ -128,7 +129,7 @@ The assistant answers only from the portfolio content and says when something is
 
 Every key comes from an account without a payment method. `worker-configuration.d.ts` holds the generated `Env` type. `pnpm types` regenerates it from `wrangler.jsonc` and the names in `.dev.vars.example`.
 
-The Workers AI binding always runs on Cloudflare, even in `wrangler dev`, which needs `wrangler login` and a `workers.dev` subdomain registered on the account.
+The Workers AI binding always runs on Cloudflare, even in `wrangler dev`, which needs `wrangler login` and a `workers.dev` subdomain on the account (`kappelakos.workers.dev`).
 
 ## Testing
 
