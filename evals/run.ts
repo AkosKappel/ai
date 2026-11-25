@@ -15,7 +15,7 @@ import { buildSystemPrompt } from "../src/chat";
 import { MODELS, type Model, ProviderError } from "../src/models";
 import { sseToText } from "../src/stream";
 import rawCases from "./cases.json";
-import { caseMessages, checkAnswer, type EvalCase } from "./check";
+import { caseMessages, checkAnswer, type EvalCase, splitFollowUps } from "./check";
 
 const PASS_RATE_GATE = 0.9;
 const ATTEMPTS = 4;
@@ -89,7 +89,16 @@ function summarize(model: Model, results: Result[]) {
   const answered = results.filter((r) => !r.error);
   const passed = answered.filter((r) => r.failures.length === 0);
   const rate = answered.length ? passed.length / answered.length : 0;
-  return { model: name(model), answered: answered.length, passed: passed.length, rate, results };
+  // Follow-ups are a nicety, so they are counted but do not fail a case.
+  const withFollowUps = answered.filter((r) => splitFollowUps(r.answer ?? "").followUps.length > 0);
+  return {
+    model: name(model),
+    answered: answered.length,
+    passed: passed.length,
+    rate,
+    followUps: withFollowUps.length,
+    results,
+  };
 }
 
 const { env, dispose } = await getPlatformProxy<Env>({ envFiles: [".dev.vars"] });
@@ -108,11 +117,14 @@ try {
   );
   console.log("\n");
 
-  const lines = ["| Model | Passed | Rate | Errors |", "| --- | --- | --- | --- |"];
+  const lines = [
+    "| Model | Passed | Rate | Errors | Follow-ups |",
+    "| --- | --- | --- | --- | --- |",
+  ];
   for (const s of summaries) {
     const errors = s.results.length - s.answered;
     lines.push(
-      `| ${s.model} | ${s.passed}/${s.answered} | ${Math.round(s.rate * 100)} % | ${errors} |`,
+      `| ${s.model} | ${s.passed}/${s.answered} | ${Math.round(s.rate * 100)} % | ${errors} | ${s.followUps}/${s.answered} |`,
     );
   }
   const details = summaries.flatMap((s) =>

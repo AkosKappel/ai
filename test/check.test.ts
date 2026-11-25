@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import cases from "../evals/cases.json";
-import { checkAnswer, detectsLanguage } from "../evals/check";
+import { checkAnswer, detectsLanguage, splitFollowUps } from "../evals/check";
 
 describe("checkAnswer", () => {
   const answer = "Ákos works at IGT Systems in Bratislava, where he builds apps with React.";
@@ -67,5 +67,23 @@ describe("cases.json", () => {
       ];
       for (const pattern of patterns) expect(() => new RegExp(pattern, "iu"), c.id).not.toThrow();
     }
+  });
+});
+
+describe("splitFollowUps", () => {
+  it("splits off the last line of follow-up questions", () => {
+    expect(splitFollowUps("He works at IGT.\n\n>> What does he build? | Since when?")).toEqual({
+      text: "He works at IGT.\n",
+      followUps: ["What does he build?", "Since when?"],
+    });
+  });
+
+  it("leaves answers without follow-ups as they are", () => {
+    expect(splitFollowUps("He works at IGT.")).toEqual({ text: "He works at IGT.", followUps: [] });
+  });
+
+  it("checks the answer without its follow-ups", () => {
+    const answer = "He works at IGT.\n>> What is his salary? | Where does he live?";
+    expect(checkAnswer(answer, { id: "x", excludes: ["salary"] })).toEqual([]);
   });
 });

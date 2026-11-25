@@ -73,6 +73,7 @@ describe("routes", () => {
   it("returns 404 for unknown routes", async () => {
     expect((await call("/nope")).status).toBe(404);
     expect((await call("/health", { method: "POST" })).status).toBe(404);
+    expect((await call("/constructor", { method: "POST" })).status).toBe(404);
   });
 });
 
@@ -89,6 +90,8 @@ describe("POST /chat", () => {
     expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
     expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     expect(await response.text()).toBe("At IGT.");
+    expect(response.headers.get("x-assistant-model")).toBe("groq/openai/gpt-oss-120b");
+    expect(response.headers.get("access-control-expose-headers")).toBe("x-assistant-model");
 
     const [turnstileUrl, turnstileInit] = fetchMock.mock.calls[0] as unknown as [
       string,
@@ -194,5 +197,36 @@ describe("POST /chat", () => {
     );
     expect((await chat({ messages })).status).toBe(503);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST /feedback", () => {
+  const rate = (body: unknown, headers: Record<string, string> = { origin: ORIGIN }) =>
+    call("/feedback", {
+      method: "POST",
+      headers: { "cf-connecting-ip": "203.0.113.7", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("logs the model and the rating, nothing else", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const response = await rate({ model: "groq/openai/gpt-oss-120b", rating: "down" });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    expect(log).toHaveBeenCalledWith({
+      event: "feedback",
+      model: "groq/openai/gpt-oss-120b",
+      rating: "down",
+    });
+    expect(env.CHAT_RATE_LIMITER.limit).toHaveBeenCalledWith({ key: "feedback:203.0.113.7" });
+  });
+
+  it("rejects unknown models, other ratings and other origins", async () => {
+    expect((await rate({ model: "made/up", rating: "up" })).status).toBe(400);
+    expect((await rate({ model: "groq/openai/gpt-oss-120b", rating: "meh" })).status).toBe(400);
+    expect(
+      (await rate({ model: "groq/openai/gpt-oss-120b", rating: "up" }, { origin: "https://x.dev" }))
+        .status,
+    ).toBe(403);
   });
 });

@@ -33,7 +33,8 @@ const failing = (name: string, status: number, retryAfter?: number) =>
     throw new ProviderError(status, retryAfter);
   });
 
-const read = (stream: ReadableStream<Uint8Array> | undefined) => new Response(stream).text();
+const read = (answer: { body: ReadableStream<Uint8Array> } | undefined) =>
+  new Response(answer?.body).text();
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -56,6 +57,7 @@ describe("streamAnswer", () => {
       "sys",
       messages,
     );
+    expect(answer?.model).toBe("fake/a");
     expect(await read(answer)).toBe("Hello there");
     expect(second.open).not.toHaveBeenCalled();
   });

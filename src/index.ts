@@ -7,7 +7,7 @@ import {
   TurnstileUnavailable,
   verifyTurnstile,
 } from "./guard";
-import { MODELS, streamAnswer } from "./models";
+import { key, MODELS, streamAnswer } from "./models";
 
 const error = (message: string, status: number, headers: Record<string, string> = {}) =>
   Response.json({ error: message }, { status, headers });
@@ -63,14 +63,48 @@ async function handleChat(request: Request, env: Env, cors: Record<string, strin
 
   // Compression would buffer the stream and deliver the whole answer at once, and
   // `no-transform` turns it off on Cloudflare's edge. `wrangler dev` compresses anyway.
-  return new Response(answer, {
+  return new Response(answer.body, {
     headers: {
       ...cors,
+      // Lets the visitor rate the answer; the rating names the model, never the text.
+      "x-assistant-model": answer.model,
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store, no-transform",
     },
   });
 }
+
+const RATED_MODELS = new Set(MODELS.map(key));
+
+/** A thumbs up or down on one answer. Only the model and the rating are logged. */
+async function handleFeedback(request: Request, env: Env, cors: Record<string, string>) {
+  const fail = (message: string, status: number) => error(message, status, cors);
+  if (bodyTooLarge(request)) return fail("Request is too large", 413);
+
+  const { success: withinLimit } = await env.CHAT_RATE_LIMITER.limit({
+    key: `feedback:${clientIp(request)}`,
+  });
+  if (!withinLimit) return fail("Too many ratings, please wait a minute", 429);
+
+  const { model, rating } = ((await request.json().catch(() => null)) ?? {}) as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof model !== "string" ||
+    !RATED_MODELS.has(model) ||
+    (rating !== "up" && rating !== "down")
+  ) {
+    return fail("Send a known model and a rating of up or down", 400);
+  }
+  console.log({ event: "feedback", model, rating });
+  return new Response(null, { status: 204, headers: cors });
+}
+
+const ROUTES = new Map([
+  ["/chat", handleChat],
+  ["/feedback", handleFeedback],
+]);
 
 export default {
   async fetch(request, env) {
@@ -81,14 +115,15 @@ export default {
       return Response.json({ status: "ok" });
     }
 
-    if (pathname === "/chat" && (request.method === "POST" || request.method === "OPTIONS")) {
+    const handle = ROUTES.get(pathname);
+    if (handle && (request.method === "POST" || request.method === "OPTIONS")) {
       // Only the portfolio may use the chat. CORS alone does not stop scripts outside a browser,
       // which is what Turnstile and the rate limit are for.
       const origin = allowedOrigin(request, env);
       if (!origin) return error("Origin not allowed", 403);
       const cors = corsHeaders(origin);
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-      return handleChat(request, env, cors);
+      return handle(request, env, cors);
     }
 
     return error("Not found", 404);

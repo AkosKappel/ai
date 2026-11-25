@@ -54,17 +54,23 @@ The portfolio shows a floating "Ask about me" button on every page ([portfolio `
 - Every message gets a fresh Turnstile token. The widget runs invisibly and shows a checkbox only when Cloudflare is unsure about the visitor.
 - Before sending, the conversation is trimmed to the Worker's limits (the last 10 messages and 6,000 characters, starting with a visitor message).
 - The answer streams into the panel and is rendered from a small, safe Markdown subset: paragraphs, lists, bold text and HTTPS links, never raw HTML.
+- The last line of an answer (`>> question | question`) becomes up to three follow-up buttons under the newest answer. The conversation is sent back without these lines.
+- Links to `https://akoskappel.dev/...` open in the same tab, in the visitor's language, and close the panel. Other links open in a new tab.
+- Each answer has copy, thumbs up and thumbs down buttons. A rating goes to `POST /feedback` with the model from the `X-Assistant-Model` header, never the text.
+- While an answer streams, the send button becomes a stop button. Stopping keeps what already arrived.
+- The conversation is kept in `sessionStorage` (this tab only) and survives reloads and language switches.
 - Error states map the Worker's status codes: 429 "too many questions", 503 "busy", 403 "bot check failed", a broken stream "the answer was cut off", anything else "something went wrong". Every state except the rate limit and the bot check offers "Try again".
 - The chat is hidden until `NEXT_PUBLIC_ASSISTANT_URL` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set in the portfolio. Only then does its Content Security Policy allow the Worker and Turnstile, and `/colophon` explain where questions go.
 
 ## API
 
-| Route           | Response                                               |
-| --------------- | ------------------------------------------------------ |
-| `GET /health`   | `{ "status": "ok" }`                                   |
-| `POST /chat`    | The answer as a `text/plain` stream                    |
-| `OPTIONS /chat` | CORS preflight: 204 for allowed origins, 403 otherwise |
-| anything else   | 404                                                    |
+| Route                                | Response                                               |
+| ------------------------------------ | ------------------------------------------------------ |
+| `GET /health`                        | `{ "status": "ok" }`                                   |
+| `POST /chat`                         | The answer as a `text/plain` stream                    |
+| `POST /feedback`                     | 204; logs a rating of one answer                       |
+| `OPTIONS /chat`, `OPTIONS /feedback` | CORS preflight: 204 for allowed origins, 403 otherwise |
+| anything else                        | 404                                                    |
 
 `POST /chat` body:
 
@@ -87,6 +93,10 @@ The portfolio shows a floating "Ask about me" button on every page ([portfolio `
 | Answer          | at most 1,000 output tokens, including any hidden reasoning                                 |
 
 Errors are JSON `{ "error": "..." }`: 400 for an invalid request, 403 for a disallowed origin or a failed bot check, 413 for a too large body, 429 over the rate limit, 503 when Turnstile, the knowledge or every model is unavailable. Every `/chat` response to an allowed origin carries `Access-Control-Allow-Origin` with that origin and `Vary: Origin`.
+
+The answer's response names the model that wrote it in `X-Assistant-Model` (for example `groq/openai/gpt-oss-120b`), exposed to the browser through `Access-Control-Expose-Headers`.
+
+`POST /feedback` body: `{ "model": "groq/openai/gpt-oss-120b", "rating": "up" }`. The model must be one in `MODELS` and the rating `up` or `down` (400 otherwise). It has its own 5-a-minute rate limit per IP and needs no Turnstile token, since it costs no model quota.
 
 CORS only stops other websites' scripts in a browser. Scripts outside a browser can send any `Origin`, which is why Turnstile and the rate limit do the real protection.
 
@@ -142,13 +152,14 @@ A portfolio deploy reaches the assistant within an hour (the cache time), withou
 
 ## System prompt rules
 
-The assistant answers only from the portfolio content and says when something is not there, never invents details, talks about Ákos in the third person, declines unrelated tasks, treats visitor messages as untrusted, and keeps answers short. The full text is in `buildSystemPrompt`.
+The assistant answers only from the portfolio content and says when something is not there, never invents details, talks about Ákos in the third person, declines unrelated tasks, treats visitor messages as untrusted, and keeps answers short. It links projects and pages with the URLs from the knowledge file, and ends every answer with a line of two or three follow-up questions (`>> First? | Second?`) that the chat shows as buttons. The evals check answers without that line and count how often a model writes it (Follow-ups column). The full text is in `buildSystemPrompt`.
 
 ## Logging and privacy
 
 - The Worker never logs prompts or answers. It logs, through Workers observability:
   - `model_used`: provider, model, number of attempts and time to first text
   - `model_failed`: provider, model and the reason (status code, timeout, empty answer)
+  - `feedback`: model and rating (`up` or `down`), to compare models on real questions
   - `stream_broken`, `all_models_failed`, `knowledge_failed` and `turnstile_unavailable`
 - There is no Cloudflare AI Gateway in front of the providers: its logs would store full prompts and answers.
 - Visitor messages are sent to the model providers. Free tiers may keep or use them under their own terms, which is why the chat UI must say so (see PLAN.md, section 7).

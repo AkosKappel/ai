@@ -25,7 +25,7 @@ Local secrets go in `.dev.vars` (ignored by git). Copy `.dev.vars.example` and a
 
 `POST /chat` with JSON `{ "messages": [{ "role": "user", "content": "..." }], "locale": "en", "turnstileToken": "..." }`. Locales: `en`, `de`, `sk`, `cs`, `hu`. Up to 10 messages, 1,000 characters each, 6,000 in total, the last one from the user. Only allowed origins may call it, at most 5 times a minute per IP, and every request needs a fresh Turnstile token.
 
-The answer streams back as `text/plain`. Errors are JSON `{ "error": "..." }`. Details, including every status code, are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The answer streams back as `text/plain`, with the model that wrote it in `X-Assistant-Model`. `POST /feedback` with `{ "model": "...", "rating": "up" }` records a thumbs up or down. Errors are JSON `{ "error": "..." }`. Details, including every status code, are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Locally, `.dev.vars` uses Cloudflare's test secret, which accepts any token:
 

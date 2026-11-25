@@ -123,7 +123,7 @@ export const MODELS: Model[] = [
 // Kept per Worker isolate, so it is best effort: another isolate may still try a model once.
 export const cooldowns = new Map<string, number>();
 
-const key = (model: Model) => `${model.provider}/${model.model}`;
+export const key = (model: Model) => `${model.provider}/${model.model}`;
 
 function cooldownSeconds(cause: unknown) {
   if (cause instanceof ProviderError && cause.status === 429) {
@@ -142,7 +142,7 @@ export async function streamAnswer(
   env: Env,
   system: string,
   messages: ChatMessage[],
-): Promise<ReadableStream<Uint8Array> | undefined> {
+): Promise<{ body: ReadableStream<Uint8Array>; model: string } | undefined> {
   const started = Date.now();
   let attempts = 0;
 
@@ -169,7 +169,7 @@ export async function streamAnswer(
       if (first.done || !reader) throw new Error("empty answer");
 
       console.log({ event: "model_used", ...describe(model), attempts, ms: Date.now() - started });
-      return continueStream(first.value, reader, model);
+      return { body: continueStream(first.value, reader, model), model: key(model) };
     } catch (cause) {
       clearTimeout(timer);
       controller.abort();

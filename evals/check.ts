@@ -55,9 +55,25 @@ const normalize = (text: string) =>
 const matches = (answer: string, pattern: string) =>
   new RegExp(pattern, "iu").test(normalize(answer));
 
+/**
+ * Splits off the last line of follow-up questions (">> First? | Second?"), which the system
+ * prompt asks for and the chat shows as buttons. The checks apply to the answer alone.
+ */
+export function splitFollowUps(answer: string): { text: string; followUps: string[] } {
+  const lines = answer.trimEnd().split("\n");
+  const last = lines.at(-1)?.match(/^\s*>>\s*(.+)$/);
+  if (!last) return { text: answer, followUps: [] };
+  const followUps = last[1]
+    .split("|")
+    .map((question) => question.trim())
+    .filter(Boolean);
+  return { text: lines.slice(0, -1).join("\n"), followUps };
+}
+
 /** Returns why the answer fails the case; an empty list means it passed. */
-export function checkAnswer(answer: string, evalCase: EvalCase): string[] {
+export function checkAnswer(fullAnswer: string, evalCase: EvalCase): string[] {
   const failures: string[] = [];
+  const answer = splitFollowUps(fullAnswer).text;
   if (answer.trim() === "") return ["empty answer"];
 
   for (const pattern of evalCase.includes ?? []) {
