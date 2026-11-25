@@ -2,7 +2,7 @@
 
 A Cloudflare Worker behind the "ask about me" chat on [akoskappel.dev](https://akoskappel.dev). It answers questions from the portfolio's public content using free model tiers, with streaming and fallback across providers.
 
-Status: `POST /chat` streams answers from five free models, falling back from one to the next when a provider is busy, behind an origin allowlist, a per-IP rate limit and Turnstile. An eval suite checks answer quality per model. The chat UI lives in the portfolio (`src/components/assistant/`); deploying is next. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
+Status: `POST /chat` streams answers from five free models, falling back from one to the next when a provider is busy, behind an origin allowlist, a per-IP rate limit and Turnstile. An eval suite checks answer quality per model. The chat UI lives in the portfolio (`src/components/assistant/`). The Worker runs on `https://ai.akoskappel.dev` and deploys from CI on every push to `main`. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
 
 ## Development
 

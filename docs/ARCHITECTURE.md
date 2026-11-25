@@ -162,13 +162,21 @@ The assistant answers only from the portfolio content and says when something is
 | `AI`                   | binding  | `wrangler.jsonc`                                         | Workers AI                                                                                                                                                |
 | `CHAT_RATE_LIMITER`    | binding  | `wrangler.jsonc`                                         | 5 requests a minute per IP                                                                                                                                |
 | `TURNSTILE_SECRET_KEY` | secret   | same as the keys below                                   | Turnstile widget secret. Locally Cloudflare's test secret `1x0000000000000000000000000000000AA`, which accepts every token (`2x…AA` rejects every token). |
-| `GROQ_API_KEY`         | secret   | `.dev.vars` locally, `wrangler secret put` in production | Groq                                                                                                                                                      |
+| `GROQ_API_KEY`         | secret   | `.dev.vars` locally, `wrangler secret put` in production (see Deploy) | Groq                                                                                                                                                      |
 | `GEMINI_API_KEY`       | secret   | same                                                     | Google AI Studio                                                                                                                                          |
 | `OPENROUTER_API_KEY`   | secret   | same                                                     | OpenRouter                                                                                                                                                |
 
 Every key comes from an account without a payment method. `worker-configuration.d.ts` holds the generated `Env` type. `pnpm types` regenerates it from `wrangler.jsonc` and the names in `.dev.vars.example`.
 
 The Workers AI binding always runs on Cloudflare, even in `wrangler dev`, which needs `wrangler login` and a `workers.dev` subdomain on the account (`kappelakos.workers.dev`).
+
+## Deploy
+
+- **Where:** Cloudflare Workers, Worker `portfolio-assistant`, served only on `https://ai.akoskappel.dev` (a custom domain in `wrangler.jsonc`; Cloudflare manages its DNS record and certificate). The `workers.dev` address and preview URLs are off.
+- **How:** the `deploy` job in [.github/workflows/ci.yml](../.github/workflows/ci.yml) runs `wrangler deploy` after the checks pass on every push to `main`, one deploy at a time. It uses the GitHub secrets `CLOUDFLARE_API_TOKEN` (from the "Edit Cloudflare Workers" template plus Workers AI Edit, limited to the account and the `akoskappel.dev` zone) and `CLOUDFLARE_ACCOUNT_ID`.
+- **Secrets** are set once with `wrangler secret put <NAME>` (or `wrangler secret bulk`) and survive deploys. A deploy never touches them.
+- **Rollback:** `pnpm exec wrangler rollback` returns to the previous version.
+- **Logs:** Cloudflare dashboard → Workers → `portfolio-assistant` → Observability, or `pnpm exec wrangler tail` live.
 
 ## Evals
 
