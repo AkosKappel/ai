@@ -70,6 +70,14 @@ describe("routes", () => {
     expect((await call("/health", { method: "HEAD" })).status).toBe(200);
   });
 
+  it("serves the eval history", async () => {
+    const response = await call("/evals");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    const { runs } = (await response.json()) as { runs: { date: string }[] };
+    expect(runs.length).toBeGreaterThan(0);
+  });
+
   it("returns 404 for unknown routes", async () => {
     expect((await call("/nope")).status).toBe(404);
     expect((await call("/health", { method: "POST" })).status).toBe(404);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import cases from "../evals/cases.json";
 import { checkAnswer, detectsLanguage, splitFollowUps } from "../evals/check";
+import { appendRun } from "../evals/history";
 
 describe("checkAnswer", () => {
   const answer = "Ákos works at IGT Systems in Bratislava, where he builds apps with React.";
@@ -85,5 +86,20 @@ describe("splitFollowUps", () => {
   it("checks the answer without its follow-ups", () => {
     const answer = "He works at IGT.\n>> What is his salary? | Where does he live?";
     expect(checkAnswer(answer, { id: "x", excludes: ["salary"] })).toEqual([]);
+  });
+});
+
+describe("appendRun", () => {
+  const run = (date: string) => ({ date, models: [], pagesPicked: 0 });
+
+  it("replaces a run from the same day and keeps the newest 52", () => {
+    const runs = Array.from({ length: 52 }, (_, i) =>
+      run(`2026-01-${String(i + 1).padStart(2, "0")}`),
+    );
+    const history = appendRun({ note: "", runs }, run("2026-12-01"));
+    expect(history.runs).toHaveLength(52);
+    expect(history.runs.at(-1)?.date).toBe("2026-12-01");
+    expect(history.runs[0].date).toBe("2026-01-02");
+    expect(appendRun(history, run("2026-12-01")).runs).toHaveLength(52);
   });
 });

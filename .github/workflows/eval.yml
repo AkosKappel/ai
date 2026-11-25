@@ -11,8 +11,11 @@ on:
     - cron: "0 21 * * 0"
   workflow_dispatch:
 
+# Writes the results to evals/history.json on main and redeploys the Worker, which serves them
+# at GET /evals for the portfolio's /assistant page. A push with GITHUB_TOKEN starts no other
+# workflow, so the deploy happens here.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}
@@ -41,8 +44,22 @@ jobs:
             echo "GEMINI_API_KEY=$GEMINI_API_KEY"
             echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
           } > .dev.vars
-      - run: pnpm eval
+      - run: pnpm eval --record evals/history.json
         env:
           # Workers AI runs through Wrangler's remote binding.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Also after a failed quality gate: a bad week belongs in the history too.
+      - name: Publish the results
+        if: ${{ !cancelled() }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          git diff --quiet evals/history.json && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Record the eval results" evals/history.json
+          git pull --rebase
+          git push
+          pnpm run deploy

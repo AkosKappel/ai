@@ -1,3 +1,4 @@
+import history from "../evals/history.json";
 import { InvalidRequest, loadKnowledge, parseChatRequest } from "./chat";
 import { prepareAnswer, sourcesHeader } from "./context";
 import {
@@ -112,6 +113,13 @@ export default {
     // Uptime monitors often send HEAD; the runtime leaves out the body for it.
     if ((request.method === "GET" || request.method === "HEAD") && pathname === "/health") {
       return Response.json({ status: "ok" });
+    }
+
+    // The weekly eval results, public and read-only, for the portfolio's /assistant page.
+    if ((request.method === "GET" || request.method === "HEAD") && pathname === "/evals") {
+      return Response.json(history, {
+        headers: { "cache-control": "public, max-age=3600", "access-control-allow-origin": "*" },
+      });
     }
 
     const handle = ROUTES.get(pathname);

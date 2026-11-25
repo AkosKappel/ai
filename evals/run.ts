@@ -5,6 +5,8 @@
 //   pnpm eval --case salary            cases whose id contains "salary"
 //   pnpm eval --knowledge <url|file>   instead of KNOWLEDGE_URL, e.g. a local portfolio
 //   pnpm eval --full                   the whole knowledge for every case, without page picking
+//   pnpm eval --record <file>          also append the results to a history file (the weekly run
+//                                      records to evals/history.json, which GET /evals serves)
 //
 // Each case's prompt is built once, like the Worker does (a page picker first), and every model
 // answers from the same prompt.
@@ -12,7 +14,7 @@
 // Secrets come from .dev.vars (CI writes it from GitHub secrets). Workers AI runs through
 // Wrangler's platform proxy, so it needs `wrangler login` locally or CLOUDFLARE_API_TOKEN in CI.
 
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { getPlatformProxy } from "wrangler";
 import { prepareAnswer } from "../src/context";
@@ -20,6 +22,7 @@ import { cooldowns, MODELS, type Model, PAGE_PICKERS, ProviderError } from "../s
 import { sseToText } from "../src/stream";
 import rawCases from "./cases.json";
 import { caseMessages, checkAnswer, type EvalCase, splitFollowUps } from "./check";
+import { appendRun, type History } from "./history";
 
 const PASS_RATE_GATE = 0.9;
 const ATTEMPTS = 4;
@@ -32,6 +35,7 @@ const { values: args } = parseArgs({
     case: { type: "string" },
     knowledge: { type: "string" },
     full: { type: "boolean" },
+    record: { type: "string" },
   },
 });
 
@@ -166,6 +170,23 @@ try {
   console.log(report);
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${report}\n`);
+
+  if (args.record) {
+    const history = JSON.parse(readFileSync(args.record, "utf8")) as History;
+    const run = {
+      date: new Date().toISOString().slice(0, 10),
+      models: summaries.map((s) => ({
+        model: s.model,
+        cases: s.results.length,
+        answered: s.answered,
+        passed: s.passed,
+        errors: s.results.length - s.answered,
+        followUps: s.followUps,
+      })),
+      pagesPicked: picked,
+    };
+    writeFileSync(args.record, `${JSON.stringify(appendRun(history, run), null, 2)}\n`);
+  }
 
   // The quality gate applies to the first model, which answers most questions in production.
   const first = summaries.find((s) => s.model === name(MODELS[0]));

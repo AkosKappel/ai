@@ -1,0 +1,27 @@
+{
+  "note": "Weekly results of pnpm eval, newest last. The first entry is from local runs, one model at a time.",
+  "runs": [
+    {
+      "date": "2026-11-25",
+      "models": [
+        {
+          "model": "groq/openai/gpt-oss-120b",
+          "cases": 30,
+          "answered": 11,
+          "passed": 11,
+          "errors": 19,
+          "followUps": 11
+        },
+        {
+          "model": "workers-ai/@cf/google/gemma-4-26b-a4b-it",
+          "cases": 34,
+          "answered": 34,
+          "passed": 33,
+          "errors": 0,
+          "followUps": 34
+        }
+      ],
+      "pagesPicked": 19
+    }
+  ]
+}

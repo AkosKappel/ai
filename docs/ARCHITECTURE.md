@@ -74,19 +74,22 @@ The portfolio shows a floating "Ask about me" button on every page ([portfolio `
 - Under each answer, its sources link to the pages it was written from (menu names in the visitor's language, project titles otherwise).
 - Each question carries the page the visitor is on.
 - "Compare a job description" switches the input to recruiter mode for one message: a longer text field (5,000 characters), shown in the chat as "Job description" and its first line. Later questions send a short note in its place, since the comparison already says what matters.
+- Voice input uses the browser's own speech recognition (Web Speech API, in the page language), where the browser has it; the words land in the text field to edit before sending.
+- `/assistant` on the portfolio explains the chat to visitors and shows the latest eval results from `GET /evals`.
 - The conversation is kept in `sessionStorage` (this tab only) and survives reloads and language switches.
 - Error states map the Worker's status codes: 429 "too many questions", 503 "busy", 403 "bot check failed", a broken stream "the answer was cut off", anything else "something went wrong". Every state except the rate limit and the bot check offers "Try again".
 - The chat is hidden until `NEXT_PUBLIC_ASSISTANT_URL` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set in the portfolio. Only then does its Content Security Policy allow the Worker and Turnstile, and `/colophon` explain where questions go.
 
 ## API
 
-| Route                                | Response                                               |
-| ------------------------------------ | ------------------------------------------------------ |
-| `GET /health`                        | `{ "status": "ok" }`                                   |
-| `POST /chat`                         | The answer as a `text/plain` stream                    |
-| `POST /feedback`                     | 204; logs a rating of one answer                       |
-| `OPTIONS /chat`, `OPTIONS /feedback` | CORS preflight: 204 for allowed origins, 403 otherwise |
-| anything else                        | 404                                                    |
+| Route                                | Response                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `GET /health`                        | `{ "status": "ok" }`                                                       |
+| `POST /chat`                         | The answer as a `text/plain` stream                                        |
+| `GET /evals`                         | The weekly eval results (`evals/history.json`), public, cached for an hour |
+| `POST /feedback`                     | 204; logs a rating of one answer                                           |
+| `OPTIONS /chat`, `OPTIONS /feedback` | CORS preflight: 204 for allowed origins, 403 otherwise                     |
+| anything else                        | 404                                                                        |
 
 `POST /chat` body:
 
@@ -224,6 +227,7 @@ The Workers AI binding always runs on Cloudflare, even in `wrangler dev`, which 
 - **Options:** `--model <part>` (repeatable) and `--case <part>` filter by name, `--knowledge <url or file>` replaces `KNOWLEDGE_URL`, for example with a local portfolio build, and `--full` skips page picking.
 - **Same path as the Worker:** each case's prompt is built once with `prepareAnswer` (page picker first, cooldowns cleared per case) and every model answers from it. The run prints for how many cases pages were picked. Cases can set `page` and `mode: "recruiter"`.
 - **Workers AI** runs through Wrangler's `getPlatformProxy`, so a local run needs `wrangler login`.
+- **History:** `--record <file>` appends the run's per-model results (cases, answered, passed, errors, follow-ups, and for how many cases pages were picked) to a history file, one run per day, the newest 52 kept. The weekly run records to [evals/history.json](../evals/history.json), commits it to `main` and redeploys the Worker, which serves the file at `GET /evals`. The portfolio's `/assistant` page shows it, fetched once a day. The first entry holds the local runs of 2026-11-25.
 - **Weekly run:** [.github/workflows/eval.yml](../.github/workflows/eval.yml) runs on Sundays at 21:00 UTC and on demand, and writes the table to the job summary. It uses the same free daily quotas as visitors, so it runs on the quietest day, three hours before OpenRouter's and Workers AI's daily quotas reset at midnight UTC. It needs the GitHub secrets `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
 A full run takes a while on free tiers: Groq's per-minute limit makes each Groq model wait between questions (5 minutes for `gpt-oss-120b` on 2026-11-25; Qwen took over an hour, mostly retrying after its quota ran out, which the skip rule now cuts short). Running models one at a time with `--model` keeps the load on the home server low.
