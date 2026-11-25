@@ -3,3 +3,6 @@
 GROQ_API_KEY=
 GEMINI_API_KEY=
 OPENROUTER_API_KEY=
+# Cloudflare's test secret that accepts every token. In production, the secret of the Turnstile
+# widget for akoskappel.dev.
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA

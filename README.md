@@ -2,7 +2,7 @@
 
 A Cloudflare Worker behind the "ask about me" chat on [akoskappel.dev](https://akoskappel.dev). It answers questions from the portfolio's public content using free model tiers, with streaming and fallback across providers.
 
-Status: `POST /chat` streams answers from five free models, falling back from one to the next when a provider is busy. An eval suite checks answer quality per model. Abuse protection is next. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
+Status: `POST /chat` streams answers from five free models, falling back from one to the next when a provider is busy, behind an origin allowlist, a per-IP rate limit and Turnstile. An eval suite checks answer quality per model. The chat UI in the portfolio is next. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
 
 ## Development
 
@@ -23,10 +23,13 @@ Local secrets go in `.dev.vars` (ignored by git). Copy `.dev.vars.example` and a
 
 ## API
 
-`POST /chat` with JSON `{ "messages": [{ "role": "user", "content": "..." }], "locale": "en" }`. Locales: `en`, `de`, `sk`, `cs`, `hu`. Up to 10 messages, 1,000 characters each, 6,000 in total, the last one from the user.
+`POST /chat` with JSON `{ "messages": [{ "role": "user", "content": "..." }], "locale": "en", "turnstileToken": "..." }`. Locales: `en`, `de`, `sk`, `cs`, `hu`. Up to 10 messages, 1,000 characters each, 6,000 in total, the last one from the user. Only allowed origins may call it, at most 5 times a minute per IP, and every request needs a fresh Turnstile token.
 
-The answer streams back as `text/plain`. Errors are JSON `{ "error": "..." }` with status 400 (invalid request), 404 or 503 (knowledge or model unavailable).
+The answer streams back as `text/plain`. Errors are JSON `{ "error": "..." }`. Details, including every status code, are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Locally, `.dev.vars` uses Cloudflare's test secret, which accepts any token:
 
 ```bash
-curl -N localhost:8787/chat -d '{"messages":[{"role":"user","content":"What does he work on?"}]}'
+curl -N localhost:8787/chat -H 'Origin: http://localhost:3000' \
+  -d '{"turnstileToken":"test","messages":[{"role":"user","content":"What does he work on?"}]}'
 ```

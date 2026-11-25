@@ -21,7 +21,12 @@ The Worker is stateless apart from in-memory cooldowns. It has no database and s
 
 ## Request flow
 
-1. **Validate** the JSON body ([src/chat.ts](../src/chat.ts) `parseChatRequest`). Anything invalid gets a 400 before any upstream call.
+1. **Guard** ([src/guard.ts](../src/guard.ts)), cheapest check first, so a rejected request never costs a Turnstile check or any model quota:
+   1. The `Origin` header must be on `ALLOWED_ORIGINS`, or the answer is 403. Requests without one (curl, scripts) are rejected too.
+   2. A body over 32 KB gets a 413.
+   3. At most 5 requests a minute per IP (`CF-Connecting-IP`) through the `CHAT_RATE_LIMITER` binding, or a 429 with `Retry-After: 60`.
+   4. The JSON body is validated ([src/chat.ts](../src/chat.ts) `parseChatRequest`): anything invalid gets a 400.
+   5. The Turnstile token is verified with Cloudflare's siteverify API, together with the visitor's IP. A rejected token gets a 403. If siteverify cannot be reached, the answer is a 503: the check fails closed rather than letting requests through.
 2. **Load the knowledge** from `KNOWLEDGE_URL` ([src/chat.ts](../src/chat.ts) `loadKnowledge`). Cloudflare caches the response for an hour, so most requests never reach the portfolio. If it fails, the answer is a 503.
 3. **Build the system prompt** (`buildSystemPrompt`): an introduction, the knowledge inside `<portfolio>` tags, the rules, and last the reply language. The long part comes first and never changes between requests, so providers that cache prompt prefixes can reuse it.
 4. **Find a model that answers** ([src/models.ts](../src/models.ts) `streamAnswer`): try each model in `MODELS` order until one sends answer text (see Fallback).
@@ -43,26 +48,36 @@ A model that failed cools down and is skipped until then: after a 429 for its `R
 
 ## API
 
-| Route         | Response                            |
-| ------------- | ----------------------------------- |
-| `GET /health` | `{ "status": "ok" }`                |
-| `POST /chat`  | The answer as a `text/plain` stream |
-| anything else | 404                                 |
+| Route           | Response                                               |
+| --------------- | ------------------------------------------------------ |
+| `GET /health`   | `{ "status": "ok" }`                                   |
+| `POST /chat`    | The answer as a `text/plain` stream                    |
+| `OPTIONS /chat` | CORS preflight: 204 for allowed origins, 403 otherwise |
+| anything else   | 404                                                    |
 
 `POST /chat` body:
 
 ```json
-{ "messages": [{ "role": "user", "content": "Where does he work?" }], "locale": "en" }
+{
+  "messages": [{ "role": "user", "content": "Where does he work?" }],
+  "locale": "en",
+  "turnstileToken": "<token from the Turnstile widget>"
+}
 ```
 
-| Rule           | Limit                                                            |
-| -------------- | ---------------------------------------------------------------- |
-| Messages       | 1 to 10, roles `user` or `assistant`, the last one from the user |
-| Message length | 1,000 characters each, 6,000 in total                            |
-| Locale         | `en` (default), `de`, `sk`, `cs`, `hu`                           |
-| Answer         | at most 1,000 output tokens, including any hidden reasoning      |
+| Rule            | Limit                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| Messages        | 1 to 10, roles `user` or `assistant`, the last one from the user                            |
+| Message length  | 1,000 characters each, 6,000 in total                                                       |
+| Locale          | `en` (default), `de`, `sk`, `cs`, `hu`                                                      |
+| Turnstile token | required, at most 2,048 characters, single-use: the chat gets a fresh one for every message |
+| Body            | at most 32 KB                                                                               |
+| Rate            | 5 requests a minute per IP                                                                  |
+| Answer          | at most 1,000 output tokens, including any hidden reasoning                                 |
 
-Errors are JSON `{ "error": "..." }`: 400 for an invalid request, 503 when the knowledge or every model is unavailable.
+Errors are JSON `{ "error": "..." }`: 400 for an invalid request, 403 for a disallowed origin or a failed bot check, 413 for a too large body, 429 over the rate limit, 503 when Turnstile, the knowledge or every model is unavailable. Every `/chat` response to an allowed origin carries `Access-Control-Allow-Origin` with that origin and `Vary: Origin`.
+
+CORS only stops other websites' scripts in a browser. Scripts outside a browser can send any `Origin`, which is why Turnstile and the rate limit do the real protection.
 
 The answer is sent with `Cache-Control: no-store, no-transform`. Compression would hold the stream back until the end, and `no-transform` turns it off on Cloudflare's edge. `wrangler dev` compresses anyway when the client accepts gzip, so streaming can only be checked locally with `Accept-Encoding: identity`.
 
@@ -123,18 +138,22 @@ The assistant answers only from the portfolio content and says when something is
 - The Worker never logs prompts or answers. It logs, through Workers observability:
   - `model_used`: provider, model, number of attempts and time to first text
   - `model_failed`: provider, model and the reason (status code, timeout, empty answer)
-  - `stream_broken`, `all_models_failed` and `knowledge_failed`
+  - `stream_broken`, `all_models_failed`, `knowledge_failed` and `turnstile_unavailable`
+- There is no Cloudflare AI Gateway in front of the providers: its logs would store full prompts and answers.
 - Visitor messages are sent to the model providers. Free tiers may keep or use them under their own terms, which is why the chat UI must say so (see PLAN.md, section 7).
 
 ## Configuration
 
-| Name                 | Kind     | Where                                                    | Purpose                                  |
-| -------------------- | -------- | -------------------------------------------------------- | ---------------------------------------- |
-| `KNOWLEDGE_URL`      | variable | `wrangler.jsonc`                                         | Where the knowledge file is fetched from |
-| `AI`                 | binding  | `wrangler.jsonc`                                         | Workers AI                               |
-| `GROQ_API_KEY`       | secret   | `.dev.vars` locally, `wrangler secret put` in production | Groq                                     |
-| `GEMINI_API_KEY`     | secret   | same                                                     | Google AI Studio                         |
-| `OPENROUTER_API_KEY` | secret   | same                                                     | OpenRouter                               |
+| Name                   | Kind     | Where                                                    | Purpose                                                                                                                                                   |
+| ---------------------- | -------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KNOWLEDGE_URL`        | variable | `wrangler.jsonc`                                         | Where the knowledge file is fetched from                                                                                                                  |
+| `ALLOWED_ORIGINS`      | variable | `wrangler.jsonc`                                         | Comma-separated origins that may call `/chat`                                                                                                             |
+| `AI`                   | binding  | `wrangler.jsonc`                                         | Workers AI                                                                                                                                                |
+| `CHAT_RATE_LIMITER`    | binding  | `wrangler.jsonc`                                         | 5 requests a minute per IP                                                                                                                                |
+| `TURNSTILE_SECRET_KEY` | secret   | same as the keys below                                   | Turnstile widget secret. Locally Cloudflare's test secret `1x0000000000000000000000000000000AA`, which accepts every token (`2x…AA` rejects every token). |
+| `GROQ_API_KEY`         | secret   | `.dev.vars` locally, `wrangler secret put` in production | Groq                                                                                                                                                      |
+| `GEMINI_API_KEY`       | secret   | same                                                     | Google AI Studio                                                                                                                                          |
+| `OPENROUTER_API_KEY`   | secret   | same                                                     | OpenRouter                                                                                                                                                |
 
 Every key comes from an account without a payment method. `worker-configuration.d.ts` holds the generated `Env` type. `pnpm types` regenerates it from `wrangler.jsonc` and the names in `.dev.vars.example`.
 

@@ -12,15 +12,15 @@ It also covers backlog items S-09 ("ask about me" assistant) and part of S-21 (s
 
 ## 2. Decisions
 
-| Decision                                                     | Why                                                                                                                                        |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| A small Cloudflare Worker for one app, not a general gateway | One client today. A gateway (API keys, aliases, an OpenAI-compatible API, per-app quotas) is extracted only when a second app needs AI.    |
-| Free tiers from several providers, tried in order            | Each free tier has low per-minute and per-day limits. Falling back across providers keeps the chat available.                              |
-| Zero cost by having no payment method on any account         | A hard guarantee that needs no code. Free tiers return errors when exhausted, which the fallback handles.                                  |
-| Cloudflare AI Gateway in front of the providers              | Logs, analytics and caching for free with no code, only a base URL per provider. Replaces the D1 usage tables from the draft.              |
-| Knowledge comes from the portfolio's own content             | The portfolio publishes `/llms-full.txt` generated from `src/content/`, so the assistant never drifts from the site. No hand-written copy. |
-| No database, no RAG, no vector store                         | The knowledge is small enough to send in full.                                                                                             |
-| No framework (Hono) and no Zod                               | Two routes and one small request shape. A plain `fetch` handler is enough.                                                                 |
+| Decision                                                     | Why                                                                                                                                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A small Cloudflare Worker for one app, not a general gateway | One client today. A gateway (API keys, aliases, an OpenAI-compatible API, per-app quotas) is extracted only when a second app needs AI.                                              |
+| Free tiers from several providers, tried in order            | Each free tier has low per-minute and per-day limits. Falling back across providers keeps the chat available.                                                                        |
+| Zero cost by having no payment method on any account         | A hard guarantee that needs no code. Free tiers return errors when exhausted, which the fallback handles.                                                                            |
+| No Cloudflare AI Gateway (dropped 2026-11-25)                | Its logs store full prompts and answers, against the rule that visitor messages are never stored. The Worker's own logs record which model answered, how fast and why others failed. |
+| Knowledge comes from the portfolio's own content             | The portfolio publishes `/llms-full.txt` generated from `src/content/`, so the assistant never drifts from the site. No hand-written copy.                                           |
+| No database, no RAG, no vector store                         | The knowledge is small enough to send in full.                                                                                                                                       |
+| No framework (Hono) and no Zod                               | Two routes and one small request shape. A plain `fetch` handler is enough.                                                                                                           |
 
 ## 3. Architecture
 
@@ -29,13 +29,13 @@ Browser (akoskappel.dev chat)
   │  POST /chat  { messages, locale, turnstileToken }
   ▼
 Worker  ai.akoskappel.dev
-  1. Check origin, request size and Turnstile token
-  2. Per-IP rate limit (Workers rate-limit binding)
+  1. Check origin, request size, per-IP rate limit (Workers rate-limit binding)
+  2. Validate the body and verify the Turnstile token
   3. Build the prompt: system rules + /llms-full.txt (cached 1 h) + visitor messages
   4. Try each enabled model in order until one starts streaming
   5. Stream plain text back
   │
-  ▼  (through Cloudflare AI Gateway: logs, analytics)
+  ▼
 Groq · Google AI Studio · OpenRouter :free · Workers AI
 ```
 
@@ -84,7 +84,7 @@ The Worker fetches the file with a one-hour cache, so a portfolio deploy updates
 - **Server-controlled prompt and model.** The browser sends only messages and a locale.
 - **System prompt rules:** answer only from the provided content, say when something is not in it, stay on topic, treat visitor messages as untrusted, never claim to be me.
 - **Secrets** (provider keys, Turnstile secret) live in Worker secrets, never in the browser.
-- **Privacy:** prompts and answers are not stored by the Worker. AI Gateway logs keep metadata (model, latency, status, token counts); turn off prompt logging there. The chat UI says that messages are processed by third-party AI providers and should not contain personal data. Update the privacy section on `/colophon`.
+- **Privacy:** prompts and answers are not stored by the Worker. The Worker's logs keep only metadata (which model answered, attempts, time, failure reasons). The chat UI says that messages are processed by third-party AI providers and should not contain personal data. Update the privacy section on `/colophon`.
 
 ## 8. Evals
 
@@ -123,7 +123,7 @@ The chat UI, the Turnstile widget and `/llms-full.txt` live in the portfolio rep
 2. **Chat endpoint** (done 2026-11-25): knowledge fetch, prompt, one provider (Groq, `openai/gpt-oss-120b`), plain-text streaming.
 3. **Fallback** (done 2026-11-25): the other providers, timeouts, cooldowns, 503 handling, unit tests with fake models.
 4. **Evals** (done 2026-11-25): 30 cases and a runner with a pass rate per model; the model order follows from the results (`docs/ARCHITECTURE.md`, Evals and Models).
-5. **Protection:** Turnstile, rate-limit binding, request limits, origin check, AI Gateway.
+5. **Protection** (done 2026-11-25): origin allowlist and CORS, body size limit, rate-limit binding, Turnstile verification. AI Gateway dropped (see Decisions).
 6. **Portfolio:** `/llms.txt` and `/llms-full.txt` with the size test (done 2026-11-25), chat UI (streaming, loading, error, busy and cut-off states, provider notice), privacy text.
 7. **Deploy:** custom domain `ai.akoskappel.dev`, deploy workflow with a Cloudflare API token, entry in `infra/apps/README.md`.
 

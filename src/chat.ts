@@ -8,17 +8,27 @@ export const LOCALES = {
 
 export type Locale = keyof typeof LOCALES;
 export type ChatMessage = { role: "user" | "assistant"; content: string };
-export type ChatRequest = { messages: ChatMessage[]; locale: Locale };
+export type ChatRequest = { messages: ChatMessage[]; locale: Locale; turnstileToken: string };
 
 const MAX_MESSAGES = 10;
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_TOTAL_CHARS = 6000;
+// Turnstile tokens are at most 2,048 characters.
+const MAX_TOKEN_CHARS = 2048;
 
 export class InvalidRequest extends Error {}
 
 export function parseChatRequest(body: unknown): ChatRequest {
   if (typeof body !== "object" || body === null) throw new InvalidRequest("Body must be an object");
-  const { messages, locale = "en" } = body as Record<string, unknown>;
+  const { messages, locale = "en", turnstileToken } = body as Record<string, unknown>;
+
+  if (
+    typeof turnstileToken !== "string" ||
+    turnstileToken === "" ||
+    turnstileToken.length > MAX_TOKEN_CHARS
+  ) {
+    throw new InvalidRequest("Missing bot check token");
+  }
 
   if (typeof locale !== "string" || !Object.hasOwn(LOCALES, locale)) {
     throw new InvalidRequest("Unsupported locale");
@@ -46,7 +56,7 @@ export function parseChatRequest(body: unknown): ChatRequest {
     throw new InvalidRequest("Last message must be from the user");
   }
 
-  return { messages: parsed, locale: locale as Locale };
+  return { messages: parsed, locale: locale as Locale, turnstileToken };
 }
 
 // The knowledge goes first and the language line last, so the long prefix stays identical
