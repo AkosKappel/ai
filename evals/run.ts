@@ -4,6 +4,10 @@
 //   pnpm eval --model gemini           models whose provider/model contains "gemini" (repeatable)
 //   pnpm eval --case salary            cases whose id contains "salary"
 //   pnpm eval --knowledge <url|file>   instead of KNOWLEDGE_URL, e.g. a local portfolio
+//   pnpm eval --full                   the whole knowledge for every case, without page picking
+//
+// Each case's prompt is built once, like the Worker does (a page picker first), and every model
+// answers from the same prompt.
 //
 // Secrets come from .dev.vars (CI writes it from GitHub secrets). Workers AI runs through
 // Wrangler's platform proxy, so it needs `wrangler login` locally or CLOUDFLARE_API_TOKEN in CI.
@@ -11,8 +15,8 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { getPlatformProxy } from "wrangler";
-import { buildSystemPrompt } from "../src/chat";
-import { MODELS, type Model, ProviderError } from "../src/models";
+import { prepareAnswer } from "../src/context";
+import { cooldowns, MODELS, type Model, PAGE_PICKERS, ProviderError } from "../src/models";
 import { sseToText } from "../src/stream";
 import rawCases from "./cases.json";
 import { caseMessages, checkAnswer, type EvalCase, splitFollowUps } from "./check";
@@ -27,6 +31,7 @@ const { values: args } = parseArgs({
     model: { type: "string", multiple: true },
     case: { type: "string" },
     knowledge: { type: "string" },
+    full: { type: "boolean" },
   },
 });
 
@@ -71,7 +76,7 @@ async function evaluate(model: Model, env: Env, systems: Map<string, string>): P
       results.push({ id: evalCase.id, failures: [], error: "skipped, quota likely used up" });
       continue;
     }
-    const system = systems.get(evalCase.locale ?? "en") ?? "";
+    const system = systems.get(evalCase.id) ?? "";
     try {
       const answer = await ask(model, env, system, evalCase);
       results.push({ id: evalCase.id, answer, failures: checkAnswer(answer, evalCase) });
@@ -104,11 +109,30 @@ function summarize(model: Model, results: Result[]) {
 const { env, dispose } = await getPlatformProxy<Env>({ envFiles: [".dev.vars"] });
 try {
   const knowledge = await loadKnowledge(args.knowledge ?? env.KNOWLEDGE_URL);
-  const locales = new Set(cases.map((c) => c.locale ?? "en"));
-  const systems = new Map([...locales].map((l) => [l, buildSystemPrompt(knowledge, l)]));
+  const pickers = args.full ? [] : PAGE_PICKERS;
+  const systems = new Map<string, string>();
+  let picked = 0;
+  for (const evalCase of cases) {
+    // Cases are prepared back to back, far faster than visitors ask. Without this, one picker
+    // timeout would send the next 30 seconds of cases down the whole-file path.
+    cooldowns.clear();
+    const { system, sources } = await prepareAnswer(
+      knowledge,
+      {
+        messages: caseMessages(evalCase),
+        locale: evalCase.locale ?? "en",
+        mode: evalCase.mode ?? "chat",
+        page: evalCase.page,
+      },
+      env,
+      pickers,
+    );
+    systems.set(evalCase.id, system);
+    if (sources.length) picked++;
+  }
 
   console.log(
-    `${cases.length} cases × ${models.length} models, knowledge ${knowledge.length} chars`,
+    `${cases.length} cases × ${models.length} models, knowledge ${knowledge.length} chars, pages picked for ${picked} cases`,
   );
   // Providers limit each model separately, so the models run in parallel and the cases of one
   // model one after another.

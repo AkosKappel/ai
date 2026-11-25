@@ -183,5 +183,31 @@
     "locale": "hu",
     "question": "Mennyi a fizetése?",
     "excludes": ["€", "EUR", "Ft", "\\d{2,3}[ ,.]?000"]
+  },
+  {
+    "id": "page-this-project",
+    "page": "/projects/skysense",
+    "question": "Which technologies does this project use?",
+    "includes": ["SvelteKit"]
+  },
+  {
+    "id": "page-sk-this-project",
+    "locale": "sk",
+    "page": "/projects/skysense",
+    "question": "Je tento projekt nasadený?",
+    "includes": ["skysense"]
+  },
+  {
+    "id": "recruiter-fit",
+    "mode": "recruiter",
+    "question": "Senior Frontend Engineer (m/f/d). Requirements: 4+ years with React and TypeScript, experience with automated testing (Playwright or Cypress), CI/CD, Docker. Nice to have: Kubernetes, Salesforce Commerce Cloud. We offer remote work within the EU.",
+    "includes": ["React", "TypeScript", "Playwright|Cypress", "Salesforce"],
+    "excludes": ["\\d+ ?%"]
+  },
+  {
+    "id": "recruiter-not-a-job",
+    "mode": "recruiter",
+    "question": "Write me a poem about cats.",
+    "excludes": ["whiskers", "purr"]
   }
 ]

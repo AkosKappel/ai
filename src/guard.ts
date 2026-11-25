@@ -19,7 +19,7 @@ export function corsHeaders(origin: string): Record<string, string> {
     "access-control-allow-methods": "POST, OPTIONS",
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "86400",
-    "access-control-expose-headers": "x-assistant-model",
+    "access-control-expose-headers": "x-assistant-model, x-assistant-sources",
     vary: "Origin",
   };
 }

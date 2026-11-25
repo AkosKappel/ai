@@ -80,6 +80,75 @@ function workersAi(model: string, extra: Record<string, unknown> = {}): Model {
   };
 }
 
+// How long a page picker may take before the next one is tried.
+const PICK_TIMEOUT_MS = 6000;
+// Most questions need one or two pages; more would bring back the cost of the whole file.
+export const MAX_PAGES = 4;
+
+/** A model that answers with a function call naming the pages a question needs. */
+export type PagePicker = Pick<Model, "provider" | "model"> & {
+  pick: (env: Env, request: Request & { paths: string[] }) => Promise<string[]>;
+};
+
+function openAiCompatiblePicker(
+  provider: string,
+  url: string,
+  model: string,
+  apiKey: (env: Env) => string,
+  extra: Record<string, unknown> = {},
+): PagePicker {
+  return {
+    provider,
+    model,
+    async pick(env, { system, messages, signal, paths }) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey(env)}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, ...messages],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "get_pages",
+                description: "Loads pages of Ákos Kappel's portfolio site.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    paths: {
+                      type: "array",
+                      items: { type: "string", enum: paths },
+                      description: `1 to ${MAX_PAGES} page paths that contain what the answer needs`,
+                    },
+                  },
+                  required: ["paths"],
+                },
+              },
+            },
+          ],
+          tool_choice: "required",
+          max_tokens: 500,
+          ...extra,
+        }),
+        signal,
+      });
+      if (!response.ok) {
+        const retryAfter = Number(response.headers.get("retry-after"));
+        throw new ProviderError(response.status, retryAfter > 0 ? retryAfter : undefined);
+      }
+      const data = (await response.json()) as {
+        choices?: { message?: { tool_calls?: { function?: { arguments?: string } }[] } }[];
+      };
+      const call = data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+      if (!call) throw new Error("no get_pages call");
+      const chosen = (JSON.parse(call) as { paths?: unknown }).paths;
+      if (!Array.isArray(chosen)) throw new Error("get_pages call without paths");
+      return chosen.filter((path): path is string => paths.includes(path)).slice(0, MAX_PAGES);
+    },
+  };
+}
+
 /**
  * Tried in this order, set on 2026-11-25 from the eval pass rates, speed and free quota (details
  * in docs/ARCHITECTURE.md). Only free tiers: no account has a payment method, and OpenRouter IDs
@@ -123,7 +192,7 @@ export const MODELS: Model[] = [
 // Kept per Worker isolate, so it is best effort: another isolate may still try a model once.
 export const cooldowns = new Map<string, number>();
 
-export const key = (model: Model) => `${model.provider}/${model.model}`;
+export const key = (model: Pick<Model, "provider" | "model">) => `${model.provider}/${model.model}`;
 
 function cooldownSeconds(cause: unknown) {
   if (cause instanceof ProviderError && cause.status === 429) {
@@ -209,7 +278,64 @@ function continueStream(
   });
 }
 
-const describe = (model: Model) => ({ provider: model.provider, model: model.model });
+const describe = (model: Pick<Model, "provider" | "model">) => ({
+  provider: model.provider,
+  model: model.model,
+});
 
 const reason = (cause: unknown) =>
   cause instanceof ProviderError ? `status ${cause.status}` : String(cause).slice(0, 200);
+
+/** The page pickers, tried in order. They share quotas and cooldowns with the answering models. */
+export const PAGE_PICKERS: PagePicker[] = [
+  openAiCompatiblePicker(
+    "groq",
+    "https://api.groq.com/openai/v1/chat/completions",
+    "openai/gpt-oss-120b",
+    (env) => env.GROQ_API_KEY,
+    { reasoning_effort: "low" },
+  ),
+  openAiCompatiblePicker(
+    "gemini",
+    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "gemini-3.5-flash-lite",
+    (env) => env.GEMINI_API_KEY,
+  ),
+];
+
+/**
+ * Asks the pickers in order which pages the conversation needs. Returns undefined when none
+ * answers, and the caller then sends the whole knowledge file instead.
+ */
+export async function pickPages(
+  pickers: PagePicker[],
+  env: Env,
+  system: string,
+  messages: ChatMessage[],
+  paths: string[],
+): Promise<{ paths: string[]; picker: string } | undefined> {
+  for (const picker of pickers) {
+    if ((cooldowns.get(key(picker)) ?? 0) > Date.now()) continue;
+    const started = Date.now();
+    try {
+      const chosen = await picker.pick(env, {
+        system,
+        messages,
+        paths,
+        signal: AbortSignal.timeout(PICK_TIMEOUT_MS),
+      });
+      if (chosen.length === 0) throw new Error("no known page chosen");
+      console.log({
+        event: "pages_picked",
+        ...describe(picker),
+        pages: chosen,
+        ms: Date.now() - started,
+      });
+      return { paths: chosen, picker: key(picker) };
+    } catch (cause) {
+      cooldowns.set(key(picker), Date.now() + cooldownSeconds(cause) * 1000);
+      console.error({ event: "pick_failed", ...describe(picker), reason: reason(cause) });
+    }
+  }
+  return undefined;
+}

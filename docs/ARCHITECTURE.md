@@ -28,9 +28,22 @@ The Worker is stateless apart from in-memory cooldowns. It has no database and s
    4. The JSON body is validated ([src/chat.ts](../src/chat.ts) `parseChatRequest`): anything invalid gets a 400.
    5. The Turnstile token is verified with Cloudflare's siteverify API, together with the visitor's IP. A rejected token gets a 403. If siteverify cannot be reached, the answer is a 503: the check fails closed rather than letting requests through.
 2. **Load the knowledge** from `KNOWLEDGE_URL` ([src/chat.ts](../src/chat.ts) `loadKnowledge`). Cloudflare caches the response for an hour, so most requests never reach the portfolio. If it fails, the answer is a 503.
-3. **Build the system prompt** (`buildSystemPrompt`): an introduction, the knowledge inside `<portfolio>` tags, the rules, and last the reply language. The long part comes first and never changes between requests, so providers that cache prompt prefixes can reuse it.
-4. **Find a model that answers** ([src/models.ts](../src/models.ts) `streamAnswer`): try each model in `MODELS` order until one sends answer text (see Fallback).
-5. **Stream the answer** as plain text. [src/stream.ts](../src/stream.ts) `sseToText` turns the provider's server-sent events into text as they arrive. Only the answer is kept (`choices[0].delta.content`, or `response` from Workers AI), so hidden reasoning never reaches the browser. A stream counts as complete only once it sends a `finish_reason` or `[DONE]`; one that just stops errors instead (see Fallback).
+3. **Pick the pages** ([src/context.ts](../src/context.ts) `prepareAnswer`, see Page picking): a small function call chooses which pages of the knowledge the question needs.
+4. **Build the system prompt** (`buildSystemPrompt`): an introduction, the picked pages (or the whole knowledge) inside `<portfolio>` tags, the page the visitor is reading, the rules, and last the reply language. Recruiter mode uses `buildRecruiterPrompt` with the whole knowledge instead.
+5. **Find a model that answers** ([src/models.ts](../src/models.ts) `streamAnswer`): try each model in `MODELS` order until one sends answer text (see Fallback).
+6. **Stream the answer** as plain text, with the model in `X-Assistant-Model` and the picked pages in `X-Assistant-Sources`. [src/stream.ts](../src/stream.ts) `sseToText` turns the provider's server-sent events into text as they arrive. Only the answer is kept (`choices[0].delta.content`, or `response` from Workers AI), so hidden reasoning never reaches the browser. A stream counts as complete only once it sends a `finish_reason` or `[DONE]`; one that just stops errors instead (see Fallback).
+
+## Page picking
+
+Sending the whole knowledge (about 18,000 characters, 6,000 tokens) with every question used up Groq's free daily token quota after a few dozen questions. So a chat question first goes to a page picker, through function calling:
+
+- [src/pages.ts](../src/pages.ts) splits `/llms-full.txt` into the site's pages: `/contact`, `/about`, `/experience`, `/education`, `/skills`, one page per project (`/projects/<slug>`, from its `Page:` link), and `/projects`, a one-line list of every project with its stack, for questions across projects.
+- The picker gets a table of contents (one line per page, about 3,000 characters) and the conversation, and must call `get_pages` with 1 to 4 paths (`tool_choice: "required"`, the paths as an `enum`). Unknown paths are dropped.
+- Pickers in order (`PAGE_PICKERS`): Groq `openai/gpt-oss-120b` (about 0.5 to 0.8 s), then Gemini `gemini-3.5-flash-lite` (about 1 s). Each gets 6 s and shares its cooldown with the answering model of the same name.
+- The answer then sees the introduction, the picked pages and the page the visitor is reading. The picked pages are its sources.
+- When no picker answers (quota, timeout, an unclear message like "Thanks!"), the answer gets the whole knowledge and no sources, as before. A question never fails because of the picker.
+
+On 2026-11-25, Gemma answered 33 of 34 eval cases from picked pages (97 %), the same miss as with the whole knowledge.
 
 ## Fallback
 
@@ -58,6 +71,9 @@ The portfolio shows a floating "Ask about me" button on every page ([portfolio `
 - Links to `https://akoskappel.dev/...` open in the same tab, in the visitor's language, and close the panel. Other links open in a new tab.
 - Each answer has copy, thumbs up and thumbs down buttons. A rating goes to `POST /feedback` with the model from the `X-Assistant-Model` header, never the text.
 - While an answer streams, the send button becomes a stop button. Stopping keeps what already arrived.
+- Under each answer, its sources link to the pages it was written from (menu names in the visitor's language, project titles otherwise).
+- Each question carries the page the visitor is on.
+- "Compare a job description" switches the input to recruiter mode for one message: a longer text field (5,000 characters), shown in the chat as "Job description" and its first line. Later questions send a short note in its place, since the comparison already says what matters.
 - The conversation is kept in `sessionStorage` (this tab only) and survives reloads and language switches.
 - Error states map the Worker's status codes: 429 "too many questions", 503 "busy", 403 "bot check failed", a broken stream "the answer was cut off", anything else "something went wrong". Every state except the rate limit and the bot check offers "Try again".
 - The chat is hidden until `NEXT_PUBLIC_ASSISTANT_URL` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set in the portfolio. Only then does its Content Security Policy allow the Worker and Turnstile, and `/colophon` explain where questions go.
@@ -94,7 +110,14 @@ The portfolio shows a floating "Ask about me" button on every page ([portfolio `
 
 Errors are JSON `{ "error": "..." }`: 400 for an invalid request, 403 for a disallowed origin or a failed bot check, 413 for a too large body, 429 over the rate limit, 503 when Turnstile, the knowledge or every model is unavailable. Every `/chat` response to an allowed origin carries `Access-Control-Allow-Origin` with that origin and `Vary: Origin`.
 
-The answer's response names the model that wrote it in `X-Assistant-Model` (for example `groq/openai/gpt-oss-120b`), exposed to the browser through `Access-Control-Expose-Headers`.
+The answer's response names the model that wrote it in `X-Assistant-Model` (for example `groq/openai/gpt-oss-120b`), exposed to the browser, like `X-Assistant-Sources`, through `Access-Control-Expose-Headers`.
+
+Optional body fields:
+
+- `page`: the site page the visitor is reading, without the language prefix (`/projects/skysense`). That page is always in the prompt, so "this project" works.
+- `mode: "recruiter"`: the only message is a job description (up to 5,000 characters). The answer compares it with the whole portfolio: overall fit, matches, partial matches, and what the portfolio does not show.
+
+`X-Assistant-Sources` lists the pages the answer was written from, as URL-encoded JSON (`[{"path":"/experience","title":"Experience"}]`); it is `[]` when the whole knowledge was used.
 
 `POST /feedback` body: `{ "model": "groq/openai/gpt-oss-120b", "rating": "up" }`. The model must be one in `MODELS` and the rating `up` or `down` (400 otherwise). It has its own 5-a-minute rate limit per IP and needs no Turnstile token, since it costs no model quota.
 
@@ -159,6 +182,7 @@ The assistant answers only from the portfolio content and says when something is
 - The Worker never logs prompts or answers. It logs, through Workers observability:
   - `model_used`: provider, model, number of attempts and time to first text
   - `model_failed`: provider, model and the reason (status code, timeout, empty answer)
+  - `pages_picked`: picker, pages and time; `pick_failed`: picker and the reason
   - `feedback`: model and rating (`up` or `down`), to compare models on real questions
   - `stream_broken`, `all_models_failed`, `knowledge_failed` and `turnstile_unavailable`
 - There is no Cloudflare AI Gateway in front of the providers: its logs would store full prompts and answers.
@@ -193,11 +217,12 @@ The Workers AI binding always runs on Cloudflare, even in `wrangler dev`, which 
 
 `pnpm eval` ([evals/run.ts](../evals/run.ts)) asks every case in [evals/cases.json](../evals/cases.json) of every model directly, without fallback, and prints a pass rate per model.
 
-- **Cases (30):** facts from the profile, a follow-up question, contact details without the e-mail or phone number, salary, an invented project and employer, an off-topic coding task, prompt injection, a request to print the system prompt, "are you Ákos?", and questions in Hungarian, Slovak, German and Czech.
+- **Cases (34):** facts from the profile, a follow-up question, contact details without the e-mail or phone number, salary, an invented project and employer, an off-topic coding task, prompt injection, a request to print the system prompt, "are you Ákos?", questions in Hungarian, Slovak, German and Czech, "this project" asked on a project page, and recruiter mode with a job description and with something that is not one.
 - **Checks** ([evals/check.ts](../evals/check.ts)) are deterministic: regular expressions that must or must not match, after turning typographic hyphens and apostrophes into ASCII. For non-English cases, the answer must not be clearly English, Slovak must not contain Czech letters (ě, ř, ů), and Czech must contain them.
 - **Rate limits:** a 429 or a dropped stream waits and retries up to four times, so it is reported as an error, not as a wrong answer. Errors are left out of the pass rate. After three errors in a row the model's remaining cases are skipped, since its daily quota is most likely used up.
 - **Gate:** the first model in `MODELS` must pass 90 %, or the run exits with an error.
-- **Options:** `--model <part>` (repeatable) and `--case <part>` filter by name, and `--knowledge <url or file>` replaces `KNOWLEDGE_URL`, for example with a local portfolio build.
+- **Options:** `--model <part>` (repeatable) and `--case <part>` filter by name, `--knowledge <url or file>` replaces `KNOWLEDGE_URL`, for example with a local portfolio build, and `--full` skips page picking.
+- **Same path as the Worker:** each case's prompt is built once with `prepareAnswer` (page picker first, cooldowns cleared per case) and every model answers from it. The run prints for how many cases pages were picked. Cases can set `page` and `mode: "recruiter"`.
 - **Workers AI** runs through Wrangler's `getPlatformProxy`, so a local run needs `wrangler login`.
 - **Weekly run:** [.github/workflows/eval.yml](../.github/workflows/eval.yml) runs on Sundays at 21:00 UTC and on demand, and writes the table to the job summary. It uses the same free daily quotas as visitors, so it runs on the quietest day, three hours before OpenRouter's and Workers AI's daily quotas reset at midnight UTC. It needs the GitHub secrets `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 

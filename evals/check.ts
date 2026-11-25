@@ -10,6 +10,10 @@ export type EvalCase = {
   /** A single question, or a whole conversation ending with the visitor's message. */
   question?: string;
   messages?: ChatMessage[];
+  /** Recruiter mode: the question is a job description. */
+  mode?: "chat" | "recruiter";
+  /** The page the visitor is reading, e.g. "/projects/skysense". */
+  page?: string;
   /** Every pattern must match the answer. */
   includes?: Pattern[];
   /** No pattern may match the answer. */

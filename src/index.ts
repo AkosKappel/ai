@@ -1,4 +1,5 @@
-import { buildSystemPrompt, InvalidRequest, loadKnowledge, parseChatRequest } from "./chat";
+import { InvalidRequest, loadKnowledge, parseChatRequest } from "./chat";
+import { prepareAnswer, sourcesHeader } from "./context";
 import {
   allowedOrigin,
   bodyTooLarge,
@@ -7,7 +8,7 @@ import {
   TurnstileUnavailable,
   verifyTurnstile,
 } from "./guard";
-import { key, MODELS, streamAnswer } from "./models";
+import { key, MODELS, PAGE_PICKERS, streamAnswer } from "./models";
 
 const error = (message: string, status: number, headers: Record<string, string> = {}) =>
   Response.json({ error: message }, { status, headers });
@@ -53,12 +54,8 @@ async function handleChat(request: Request, env: Env, cors: Record<string, strin
   }
 
   // Prompts and answers are never logged, only which model answered or failed and how.
-  const answer = await streamAnswer(
-    MODELS,
-    env,
-    buildSystemPrompt(knowledge, chat.locale),
-    chat.messages,
-  );
+  const { system, sources } = await prepareAnswer(knowledge, chat, env, PAGE_PICKERS);
+  const answer = await streamAnswer(MODELS, env, system, chat.messages);
   if (!answer) return fail("The assistant is busy, please try again in a minute", 503);
 
   // Compression would buffer the stream and deliver the whole answer at once, and
@@ -68,6 +65,8 @@ async function handleChat(request: Request, env: Env, cors: Record<string, strin
       ...cors,
       // Lets the visitor rate the answer; the rating names the model, never the text.
       "x-assistant-model": answer.model,
+      // The pages the answer was written from, shown as its sources.
+      "x-assistant-sources": sourcesHeader(sources),
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store, no-transform",
     },

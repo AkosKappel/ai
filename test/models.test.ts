@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cooldowns, MODELS, type Model, ProviderError, streamAnswer } from "../src/models";
+import {
+  cooldowns,
+  MODELS,
+  type Model,
+  PAGE_PICKERS,
+  ProviderError,
+  pickPages,
+  streamAnswer,
+} from "../src/models";
 
 const env = { GROQ_API_KEY: "groq-key" } as Env;
 const messages = [{ role: "user" as const, content: "Hi" }];
@@ -166,5 +174,55 @@ describe("OpenAI-compatible models", () => {
     for (const model of MODELS.filter((m) => m.provider === "openrouter")) {
       expect(model.model).toMatch(/:free$/);
     }
+  });
+});
+
+describe("page pickers", () => {
+  it("offer get_pages with the known paths and keep only known paths from the call", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            message: {
+              tool_calls: [
+                { function: { arguments: JSON.stringify({ paths: ["/about", "/nope"] }) } },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const paths = await PAGE_PICKERS[0].pick(env, {
+      system: "sys",
+      messages,
+      paths: ["/about", "/contact"],
+      signal: new AbortController().signal,
+    });
+
+    expect(paths).toEqual(["/about"]);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.tool_choice).toBe("required");
+    expect(body.tools[0].function.name).toBe("get_pages");
+    expect(body.tools[0].function.parameters.properties.paths.items.enum).toEqual([
+      "/about",
+      "/contact",
+    ]);
+  });
+
+  it("falls back to the next picker and cools down the failed one", async () => {
+    const failing = {
+      provider: "fake",
+      model: "a",
+      pick: vi.fn(async () => {
+        throw new ProviderError(429, 90);
+      }),
+    };
+    const working = { provider: "fake", model: "b", pick: vi.fn(async () => ["/contact"]) };
+    const picked = await pickPages([failing, working], env, "sys", messages, ["/contact"]);
+    expect(picked).toEqual({ paths: ["/contact"], picker: "fake/b" });
+    expect(cooldowns.get("fake/a")).toBeGreaterThan(Date.now() + 80_000);
   });
 });

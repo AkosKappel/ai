@@ -91,7 +91,9 @@ describe("POST /chat", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     expect(await response.text()).toBe("At IGT.");
     expect(response.headers.get("x-assistant-model")).toBe("groq/openai/gpt-oss-120b");
-    expect(response.headers.get("access-control-expose-headers")).toBe("x-assistant-model");
+    expect(response.headers.get("access-control-expose-headers")).toBe(
+      "x-assistant-model, x-assistant-sources",
+    );
 
     const [turnstileUrl, turnstileInit] = fetchMock.mock.calls[0] as unknown as [
       string,
