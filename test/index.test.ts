@@ -67,6 +67,7 @@ describe("routes", () => {
     const response = await call("/health");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ok" });
+    expect((await call("/health", { method: "HEAD" })).status).toBe(200);
   });
 
   it("returns 404 for unknown routes", async () => {

@@ -76,7 +76,8 @@ export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
 
-    if (request.method === "GET" && pathname === "/health") {
+    // Uptime monitors often send HEAD; the runtime leaves out the body for it.
+    if ((request.method === "GET" || request.method === "HEAD") && pathname === "/health") {
       return Response.json({ status: "ok" });
     }
 
