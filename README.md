@@ -2,7 +2,7 @@
 
 A Cloudflare Worker behind the "ask about me" chat on [akoskappel.dev](https://akoskappel.dev). It answers questions from the portfolio's public content using free model tiers, with streaming and fallback across providers.
 
-Status: `POST /chat` streams answers from one provider (Groq). Fallback, evals and abuse protection are next. The plan and the next phases are in [PLAN.md](PLAN.md).
+Status: `POST /chat` streams answers from one provider (Groq). Fallback, evals and abuse protection are next. How it works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the plan and the next phases in [PLAN.md](PLAN.md).
 
 ## Development
 
@@ -18,7 +18,7 @@ pnpm typecheck
 
 `worker-configuration.d.ts` is generated from `wrangler.jsonc` and the secret names in `.dev.vars.example` by `pnpm types`. Run it after changing bindings, secrets or the compatibility date, and commit the result.
 
-Local secrets go in `.dev.vars` (ignored by git). Copy `.dev.vars.example` and add a [Groq API key](https://console.groq.com/keys) from an account without a payment method. Until the portfolio publishes `/llms-full.txt`, also set `KNOWLEDGE_URL` there to any reachable Markdown file.
+Local secrets go in `.dev.vars` (ignored by git). Copy `.dev.vars.example` and add a [Groq API key](https://console.groq.com/keys) from an account without a payment method. Until the portfolio's `/llms-full.txt` is live, point the Worker at a local portfolio instead (see Testing in the architecture doc).
 
 ## API
 
