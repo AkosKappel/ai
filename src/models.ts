@@ -148,7 +148,7 @@ export async function streamAnswer(
     attempts++;
 
     const controller = new AbortController();
-    let timer = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("no answer text in time")), FIRST_TEXT_TIMEOUT_MS);
     });

@@ -1,0 +1,48 @@
+name: Eval
+
+# Asks every eval case of every model against the live knowledge file. Weekly rather than on every
+# push, so it stays inside the free tiers (OpenRouter allows 50 free requests a day). The run uses
+# the same daily quotas as visitors, so it goes on Sunday, the quietest day, at 21:00 UTC: three
+# hours before OpenRouter's and Workers AI's daily quotas reset at midnight UTC, so it spends what
+# the day left over instead of what visitors need next. Gemini resets at midnight Pacific time
+# (08:00 UTC) and cannot be lined up too.
+on:
+  schedule:
+    - cron: "0 21 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Write provider keys
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          {
+            echo "GROQ_API_KEY=$GROQ_API_KEY"
+            echo "GEMINI_API_KEY=$GEMINI_API_KEY"
+            echo "OPENROUTER_API_KEY=$OPENROUTER_API_KEY"
+          } > .dev.vars
+      - run: pnpm eval
+        env:
+          # Workers AI runs through Wrangler's remote binding.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
