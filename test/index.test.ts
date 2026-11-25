@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
+import { cooldowns } from "../src/models";
 
 const env = {
   GROQ_API_KEY: "test-key",
+  GEMINI_API_KEY: "gemini-key",
+  OPENROUTER_API_KEY: "openrouter-key",
   KNOWLEDGE_URL: "https://akoskappel.dev/llms-full.txt",
-} as Env;
+  AI: {
+    run: async () => {
+      throw new Error("Workers AI unavailable");
+    },
+  },
+} as unknown as Env;
 
 const call = (path: string, init?: RequestInit) =>
   worker.fetch(
@@ -30,6 +38,7 @@ function mockUpstream(provider: () => Response, knowledge = () => new Response("
 }
 
 afterEach(() => {
+  cooldowns.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -51,6 +60,7 @@ describe("POST /chat", () => {
   const messages = [{ role: "user", content: "Where does he work?" }];
 
   it("streams the answer as plain text", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
     const fetchMock = mockUpstream(() => new Response(sse("At ", "IGT.")));
 
     const response = await chat({ messages, locale: "de" });
@@ -85,7 +95,7 @@ describe("POST /chat", () => {
     expect((await chat({ messages })).status).toBe(503);
   });
 
-  it("returns 503 when the provider fails", async () => {
+  it("returns 503 when every model fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     mockUpstream(() => new Response("rate limited", { status: 429 }));
 

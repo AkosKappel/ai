@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-20",
   "observability": { "enabled": true },
+  "ai": { "binding": "AI" },
   "vars": {
     "KNOWLEDGE_URL": "https://akoskappel.dev/llms-full.txt"
   }

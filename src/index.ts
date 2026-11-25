@@ -1,6 +1,5 @@
 import { buildSystemPrompt, InvalidRequest, loadKnowledge, parseChatRequest } from "./chat";
-import { MODELS, ProviderError, streamCompletion } from "./models";
-import { sseToText } from "./stream";
+import { MODELS, streamAnswer } from "./models";
 
 const error = (message: string, status: number) => Response.json({ error: message }, { status });
 
@@ -21,22 +20,23 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
     return error("The assistant is unavailable right now", 503);
   }
 
-  // Prompts and answers are never logged, only which provider failed and how.
-  try {
-    const stream = await streamCompletion(
-      MODELS[0],
-      buildSystemPrompt(knowledge, chat.locale),
-      chat.messages,
-      env,
-    );
-    return new Response(sseToText(stream), {
-      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-    });
-  } catch (cause) {
-    const status = cause instanceof ProviderError ? cause.status : undefined;
-    console.error({ event: "provider_failed", provider: MODELS[0].provider, status });
-    return error("The assistant is busy, please try again in a minute", 503);
-  }
+  // Prompts and answers are never logged, only which model answered or failed and how.
+  const answer = await streamAnswer(
+    MODELS,
+    env,
+    buildSystemPrompt(knowledge, chat.locale),
+    chat.messages,
+  );
+  if (!answer) return error("The assistant is busy, please try again in a minute", 503);
+
+  // Compression would buffer the stream and deliver the whole answer at once, and
+  // `no-transform` turns it off on Cloudflare's edge. `wrangler dev` compresses anyway.
+  return new Response(answer, {
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store, no-transform",
+    },
+  });
 }
 
 export default {

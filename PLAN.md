@@ -56,11 +56,14 @@ The model list lives in one config array (`provider`, `model`, `enabled`). Order
 
 ## 5. Request flow and fallback
 
-- Fallback happens only before the first byte reaches the browser. A provider is skipped on a 429, a 5xx, a network error or a timeout (8 s to the first token).
-- A 4xx other than 429 is a bug in the request. Return it instead of trying the next provider.
-- A provider that returns 429 is skipped for the rest of the minute (in-memory per Worker isolate, best effort).
-- If a stream breaks mid-answer, close it. The UI shows "the answer was cut off, please try again".
-- If every provider fails, return 503 with a "busy, try again in a minute" message.
+- Fallback happens only before any answer text reaches the browser. A model is skipped on any error status, a network error, an error event in the stream, an empty answer, or no answer text within 8 s.
+- Visitor input is validated before any provider is called, so a provider error is never the visitor's fault and always moves on to the next model.
+- A failed model cools down for 30 s, or after a 429 for its `Retry-After` (60 s by default, at most 10 min). Cooldowns live in memory per Worker isolate, so they are best effort.
+- No new attempt starts after 20 s, so a visitor never waits on every model timing out in turn.
+- If a stream breaks mid-answer, the response is aborted so the browser can tell, and the UI shows "the answer was cut off, please try again".
+- If every model fails, return 503 with a "busy, try again in a minute" message.
+
+The model order as of 2026-11-25 (fastest first, measured with the full prompt) is in `docs/ARCHITECTURE.md`. Section 4 lists the providers' free tiers.
 
 ## 6. Knowledge
 
@@ -117,7 +120,7 @@ The chat UI, the Turnstile widget and `/llms-full.txt` live in the portfolio rep
 
 1. **Foundation** (done 2026-11-25): repository, Worker with `GET /health`, Biome, Vitest, CI checks.
 2. **Chat endpoint** (done 2026-11-25): knowledge fetch, prompt, one provider (Groq, `openai/gpt-oss-120b`), plain-text streaming.
-3. **Fallback:** the other providers, timeouts, cooldowns, 503 handling, unit tests with a fake `fetch`.
+3. **Fallback** (done 2026-11-25): the other providers, timeouts, cooldowns, 503 handling, unit tests with fake models.
 4. **Evals:** cases and runner, pick the model order from the results.
 5. **Protection:** Turnstile, rate-limit binding, request limits, origin check, AI Gateway.
 6. **Portfolio:** `/llms.txt` and `/llms-full.txt` with the size test (done 2026-11-25), chat UI (streaming, loading, error, busy and cut-off states, provider notice), privacy text.
