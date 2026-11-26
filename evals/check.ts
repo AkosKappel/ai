@@ -1,4 +1,4 @@
-import type { ChatMessage, Locale } from "../src/chat";
+import type { ChatMessage } from "../src/chat";
 
 /** A regular expression source, matched case-insensitively. A list matches when any entry does. */
 export type Pattern = string | string[];
@@ -19,6 +19,9 @@ export type EvalCase = {
   /** No pattern may match the answer. */
   excludes?: string[];
 };
+
+// The portfolio's languages, which its eval cases use.
+type Locale = "en" | "de" | "sk" | "cs" | "hu";
 
 // Common short words per language, used to spot an answer in the wrong language.
 const STOPWORDS: Record<Locale, string[]> = {

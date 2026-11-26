@@ -37,7 +37,7 @@ The Worker is stateless apart from in-memory cooldowns. It has no database and s
 
 Sending the whole knowledge (about 18,000 characters, 6,000 tokens) with every question used up Groq's free daily token quota after a few dozen questions. So a chat question first goes to a page picker, through function calling:
 
-- [src/pages.ts](../src/pages.ts) splits `/llms-full.txt` into the site's pages: `/contact`, `/about`, `/experience`, `/education`, `/skills`, one page per project (`/projects/<slug>`, from its `Page:` link), and `/projects`, a one-line list of every project with its stack, for questions across projects.
+- [src/pages.ts](../src/pages.ts) splits the knowledge file into the site's pages: one per `##` section, at its `Page:` link or else at `/<heading slug>`. A section whose `###` entries have `Page:` links is a list: each entry becomes a page, and the section's page lists every entry in one line (with its stack, if it has a `Stack:` line). For the portfolio that gives `/contact`, `/about`, `/experience`, `/education`, `/skills`, one page per project (`/projects/<slug>`) and `/projects`. The format is in the README.
 - The picker gets a table of contents (one line per page, about 3,000 characters) and the conversation, and must call `get_pages` with 1 to 4 paths (`tool_choice: "required"`, the paths as an `enum`). Unknown paths are dropped.
 - Pickers in order (`PAGE_PICKERS`): Groq `openai/gpt-oss-120b` (about 0.5 to 0.8 s), then Gemini `gemini-3.5-flash-lite` (about 1 s). Each gets 6 s and shares its cooldown with the answering model of the same name.
 - The answer then sees the introduction, the picked pages and the page the visitor is reading. The picked pages are its sources.
@@ -178,7 +178,7 @@ A portfolio deploy reaches the assistant within an hour (the cache time), withou
 
 ## System prompt rules
 
-The assistant answers only from the portfolio content and says when something is not there, never invents details, talks about Ákos in the third person, declines unrelated tasks, treats visitor messages as untrusted, and keeps answers short. It links projects and pages with the URLs from the knowledge file, and ends every answer with a line of two or three follow-up questions (`>> First? | Second?`) that the chat shows as buttons. The evals check answers without that line and count how often a model writes it (Follow-ups column). The full text is in `buildSystemPrompt`.
+The assistant answers only from the site content and says when something is not there, never invents details, talks about the site's subject (the knowledge file's H1, `siteName`) in the third person, declines unrelated tasks, treats visitor messages as untrusted, and keeps answers short. It links projects and pages with the URLs from the knowledge file, and ends every answer with a line of two or three follow-up questions (`>> First? | Second?`) that the chat shows as buttons. The evals check answers without that line and count how often a model writes it (Follow-ups column). The full text is in `buildSystemPrompt`.
 
 ## Logging and privacy
 

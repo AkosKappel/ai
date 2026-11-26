@@ -66,6 +66,31 @@ describe("splitKnowledge", () => {
       "/experience: Experience. Full-Stack Software Engineer, IGT Systems",
     );
   });
+
+  it("takes paths from Page links and turns any section of linked entries into a list", () => {
+    const pages = splitKnowledge(`# Jane Doe
+
+## Who I am
+
+Page: https://jane.example/
+
+I grow vegetables.
+
+## Writing
+
+### Raised beds
+
+How to build one.
+
+Page: https://jane.example/blog/raised-beds
+`);
+    expect(pages.map(({ path, list }) => ({ path, list }))).toEqual([
+      { path: "/", list: undefined },
+      { path: "/blog", list: true },
+      { path: "/blog/raised-beds", list: undefined },
+    ]);
+    expect(pages[1].text).toBe("## Writing\n\n- Raised beds: How to build one.");
+  });
 });
 
 describe("prepareAnswer", () => {
@@ -91,6 +116,8 @@ describe("prepareAnswer", () => {
     expect(pick.mock.calls[0][1]).toMatchObject({
       paths: ["/contact", "/experience", "/projects", "/projects/skysense", "/projects/pokedex"],
     });
+    expect(pick.mock.calls[0][1].system).toContain("the website of Ákos Kappel");
+    expect(pick.mock.calls[0][1].system).toContain("the page that lists them all (/projects)");
   });
 
   it("falls back to the whole knowledge when no picker answers", async () => {

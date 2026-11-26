@@ -1,18 +1,22 @@
-import { buildRecruiterPrompt, buildSystemPrompt, type ChatRequest } from "./chat";
+import { buildRecruiterPrompt, buildSystemPrompt, type ChatRequest, siteName } from "./chat";
 import { MAX_PAGES, type PagePicker, pickPages } from "./models";
 import { introduction, type Page, pagesText, splitKnowledge, tableOfContents } from "./pages";
 
 export type Source = Pick<Page, "path" | "title">;
 export type Prepared = { system: string; sources: Source[] };
 
-function pickerPrompt(toc: string, page?: string) {
+function pickerPrompt(name: string, pages: Page[], page?: string) {
   const where = page ? `\nThe visitor is reading the page ${page}.\n` : "";
-  return `You choose which pages of Ákos Kappel's portfolio site an assistant needs to answer the visitor's last message, taking the conversation into account. Call get_pages with 1 to ${MAX_PAGES} paths.
+  const lists = pages.filter((p) => p.list).map((p) => p.path);
+  const across = lists.length
+    ? `For questions across several entries (a technology, a kind of project), choose the page that lists them all (${lists.join(", ")}) and any page about jobs or work experience. `
+    : "";
+  return `You choose which pages of the website of ${name} an assistant needs to answer the visitor's last message, taking the conversation into account. Call get_pages with 1 to ${MAX_PAGES} paths.
 
 Pages:
-${toc}
+${tableOfContents(pages)}
 ${where}
-For questions across projects (a technology, a kind of project), choose /projects, which lists every project with its stack, and /experience for his jobs. For greetings, thanks, off-topic or unclear messages, choose /about. For ways to reach him, spoken languages or availability, choose /contact.`;
+${across}For greetings, thanks, off-topic or unclear messages, choose the page that introduces ${name}. For ways to get in touch, spoken languages or availability, choose the page with the contact details.`;
 }
 
 /**
@@ -39,7 +43,7 @@ export async function prepareAnswer(
     ? await pickPages(
         pickers,
         env,
-        pickerPrompt(tableOfContents(pages), chat.page),
+        pickerPrompt(siteName(knowledge), pages, chat.page),
         chat.messages,
         pages.map((p) => p.path),
       )

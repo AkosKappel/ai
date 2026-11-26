@@ -124,7 +124,7 @@ export default {
 
     const handle = ROUTES.get(pathname);
     if (handle && (request.method === "POST" || request.method === "OPTIONS")) {
-      // Only the portfolio may use the chat. CORS alone does not stop scripts outside a browser,
+      // Only the allowed origins may use the chat. CORS alone does not stop scripts outside a browser,
       // which is what Turnstile and the rate limit are for.
       const origin = allowedOrigin(request, env);
       if (!origin) return error("Origin not allowed", 403);

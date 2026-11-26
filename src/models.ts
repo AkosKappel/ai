@@ -112,7 +112,7 @@ function openAiCompatiblePicker(
               type: "function",
               function: {
                 name: "get_pages",
-                description: "Loads pages of Ákos Kappel's portfolio site.",
+                description: "Loads pages of the website.",
                 parameters: {
                   type: "object",
                   properties: {

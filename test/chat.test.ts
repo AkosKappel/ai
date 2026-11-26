@@ -32,6 +32,12 @@ describe("parseChatRequest", () => {
     expect(parsed).toMatchObject({ mode: "recruiter", page: "/projects/skysense" });
   });
 
+  it("accepts any language code", () => {
+    expect(parseChatRequest(withToken({ messages: [user("Oi")], locale: "pt-BR" })).locale).toBe(
+      "pt-BR",
+    );
+  });
+
   it("drops unknown fields from messages", () => {
     const parsed = parseChatRequest(withToken({ messages: [{ ...user("Hi"), x: 1 }] }));
     expect(parsed.messages).toEqual([user("Hi")]);
@@ -46,7 +52,7 @@ describe("parseChatRequest", () => {
     ["a long message", { messages: [user("a".repeat(1001))] }],
     ["a long conversation", { messages: Array.from({ length: 7 }, () => user("a".repeat(900))) }],
     ["an assistant message last", { messages: [user("Hi"), { role: "assistant", content: "Yo" }] }],
-    ["an unknown locale", { messages: [user("Hi")], locale: "fr" }],
+    ["an unknown locale", { messages: [user("Hi")], locale: "xx" }],
     ["a prototype key as locale", { messages: [user("Hi")], locale: "toString" }],
     ["an unknown mode", { messages: [user("Hi")], mode: "admin" }],
     ["a page that is not a path", { messages: [user("Hi")], page: "https://evil.example" }],
@@ -73,20 +79,27 @@ describe("buildSystemPrompt", () => {
     expect(prompt.indexOf("Works at IGT.")).toBeLessThan(prompt.indexOf("Reply in Hungarian"));
   });
 
+  it("names the site from the knowledge file's heading, and the language from its code", () => {
+    const prompt = buildSystemPrompt("# Jane Doe\n\nWrites about gardens.", "pt-BR");
+    expect(prompt).toContain("You are the assistant on the website of Jane Doe.");
+    expect(prompt).toContain("Talk about Jane Doe in the third person.");
+    expect(prompt).toContain("Reply in Brazilian Portuguese");
+  });
+
   it("names the page the visitor is reading", () => {
     const prompt = buildSystemPrompt("Works at IGT.", "en", {
       picked: true,
       page: { path: "/projects/skysense", title: "SkySense" },
     });
     expect(prompt).toContain("reading the page /projects/skysense (SkySense)");
-    expect(prompt).toContain("picked from the site for this question");
+    expect(prompt).toContain("site pages above, picked for this question");
   });
 });
 
 describe("buildRecruiterPrompt", () => {
   it("asks for an honest comparison in the visitor's language", () => {
     const prompt = buildRecruiterPrompt("Works at IGT.", "de");
-    expect(prompt).toContain("Not in the portfolio");
+    expect(prompt).toContain("Not on the site");
     expect(prompt).toContain("Reply in German");
   });
 });

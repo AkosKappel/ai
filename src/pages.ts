@@ -1,18 +1,19 @@
 // The knowledge file split into the site's pages, so a model can pick the ones a question needs
 // (tool calling) instead of reading the whole file with every question.
 
-export type Page = { path: string; title: string; summary: string; text: string };
-
-// Top-level sections of /llms-full.txt and the pages of the site that show them.
-const SECTION_PATHS: Record<string, string> = {
-  contact: "/contact",
-  about: "/about",
-  experience: "/experience",
-  education: "/education",
-  skills: "/skills",
+export type Page = {
+  path: string;
+  title: string;
+  summary: string;
+  text: string;
+  /** A list section: one line per item, each item also being a page of its own. */
+  list?: boolean;
 };
 
-const PROJECT_PAGE = /^Page: https?:\/\/[^/\s]+(\/projects\/[\w-]+)$/m;
+// A "Page: <url>" line links a section or an item to the page of the site that shows it.
+const PAGE_LINK = /^Page: https?:\/\/[^/\s]+(\/[\w\-/]*)$/m;
+const pagePath = (text: string) => text.match(PAGE_LINK)?.[1];
+const parentPath = (path: string) => path.replace(/\/[^/]+$/, "");
 
 const slug = (text: string) =>
   text
@@ -33,31 +34,35 @@ function blocks(markdown: string, level: number) {
 }
 
 /**
- * Every top-level section becomes one page, except Projects: each project becomes its own page
- * (found by its "Page:" link), plus `/projects` with a one-line list of all of them.
+ * Every top-level (##) section becomes one page, at its "Page:" link or else at
+ * `/<heading slug>`. A section whose items (###) have their own "Page:" links is a list, like
+ * the projects of a portfolio: each item becomes a page, and the section's page (by default the
+ * items' parent path, `/projects`) lists them all in one line each.
  */
 export function splitKnowledge(markdown: string): Page[] {
   const pages: Page[] = [];
   for (const section of blocks(markdown, 2)) {
-    if (slug(section.heading) === "projects") {
-      const projects = blocks(section.body, 3).flatMap(({ heading, body, part }) => {
-        const path = body.match(PROJECT_PAGE)?.[1];
-        if (!path) return [];
-        const title = heading.replace(/\s*\(.*\)$/, "");
-        const summary = body.split("\n")[0].split(/(?<=\.)\s/)[0];
-        const stack = body.match(/^Stack: (.+)$/m)?.[1];
-        return [{ path, title, summary, stack, text: part.trim() }];
-      });
+    const ownPath = pagePath(section.body.split(/^### /m)[0]);
+    const items = blocks(section.body, 3).flatMap(({ heading, body, part }) => {
+      const path = pagePath(body);
+      if (!path) return [];
+      const title = heading.replace(/\s*\(.*\)$/, "");
+      const summary = body.split("\n")[0].split(/(?<=\.)\s/)[0];
+      const stack = body.match(/^Stack: (.+)$/m)?.[1];
+      return [{ path, title, summary, stack, text: part.trim() }];
+    });
+    if (items.length) {
       pages.push(
         {
-          path: "/projects",
+          path: ownPath ?? (parentPath(items[0].path) || `/${slug(section.heading)}`),
           title: section.heading,
-          summary: "Every project with one line and its stack, for questions across projects",
-          text: `## ${section.heading}\n\n${projects
+          summary: "Every entry in one line, for questions across several of them",
+          text: `## ${section.heading}\n\n${items
             .map((p) => `- ${p.title}: ${p.summary}${p.stack ? ` Stack: ${p.stack}.` : ""}`)
             .join("\n")}`,
+          list: true,
         },
-        ...projects.map(({ stack: _, ...page }) => page),
+        ...items.map(({ stack: _, ...page }) => page),
       );
       continue;
     }
@@ -66,7 +71,7 @@ export function splitKnowledge(markdown: string): Page[] {
     const labels = [...section.body.matchAll(/^- ([^:\n(]+)/gm)].map((match) => match[1].trim());
     const outline = subheadings.length ? subheadings : labels;
     pages.push({
-      path: SECTION_PATHS[slug(section.heading)] ?? `/${slug(section.heading)}`,
+      path: ownPath ?? `/${slug(section.heading)}`,
       title: section.heading,
       summary: outline.length ? outline.join("; ") : section.heading,
       text: section.part.trim(),
